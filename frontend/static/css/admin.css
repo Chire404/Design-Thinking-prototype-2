@@ -661,3 +661,39 @@ body {
 .badge--ALREADY_SETTLED { background: #E0F2FE; color: #075985; }
 .badge--AMOUNT_MISMATCH, .badge--ACCOUNT_MISMATCH { background: #FEF3C7; color: #92400E; }
 .badge--UNMATCHED { background: #F1F5F9; color: #475569; }
+
+
+/* APPROVAL MODE PILLS: TỰ ĐỘNG vs THỦ CÔNG */
+.filter-grid--7 {
+  grid-template-columns: repeat(7, 1fr);
+}
+
+@media (max-width: 1180px) {
+  .filter-grid--7 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.mode-pill--AUTO {
+  background: #D1FAE5;
+  color: #065F46;
+  border: 1px solid #6EE7B7;
+}
+
+.mode-pill--MANUAL {
+  background: #FEF3C7;
+  color: #92400E;
+  border: 1px solid #FCD34D;
+}

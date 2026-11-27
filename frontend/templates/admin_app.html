@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0B192C" />
   <title>{{ app_name }} Admin — Trung Tâm Điều Hành &amp; Kiểm Soát Thẻ Vé</title>
   <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg" />
-  <link rel="stylesheet" href="/static/css/admin.css" />
+  <link rel="stylesheet" href="/static/css/admin.css?v=2.5" />
 </head>
 <body>
   <script>
@@ -397,10 +397,15 @@
                 <p class="adm-muted">Admin luôn có thể xác nhận hoặc từ chối thủ công bất kỳ đơn `PENDING` / `PROCESSING` nào</p>
               </div>
               <div class="filter-bar">
+                <select id="filter-topup-channel" class="adm-select">
+                  <option value="">Mọi loại Request</option>
+                  <option value="AUTO">Request Tự Động (Bank QR)</option>
+                  <option value="MANUAL">Request Thủ Công (Tiền mặt/Khác)</option>
+                </select>
                 <select id="filter-topup-status" class="adm-select">
                   <option value="">Tất cả trạng thái</option>
                   <option value="PENDING">PENDING (Chờ TT)</option>
-                  <option value="PROCESSING">PROCESSING (Khách báo đã CK)</option>
+                  <option value="PROCESSING">PROCESSING (Chờ duyệt)</option>
                   <option value="SUCCESS">SUCCESS (Đã cộng tiền)</option>
                   <option value="FAILED">FAILED (Từ chối)</option>
                   <option value="CANCELLED">CANCELLED</option>
@@ -417,10 +422,10 @@
                   <tr>
                     <th>Mã GD</th>
                     <th>Người dùng</th>
-                    <th>Số tiền</th>
-                    <th>Nội dung CK</th>
-                    <th>Trạng thái / Kênh</th>
-                    <th>Mã tham chiếu NH</th>
+                    <th>Số tiền / Mục đích</th>
+                    <th>Loại Request / Nội dung</th>
+                    <th>Trạng thái &amp; Duyệt</th>
+                    <th>Mã tham chiếu</th>
                     <th>Thời gian</th>
                     <th>Thao tác</th>
                   </tr>
@@ -565,15 +570,23 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- SECTION 5: TRANSACTIONS EXPLORER                         -->
+        <!-- SECTION 5: TRANSACTIONS EXPLORER (WITH TỰ ĐỘNG/THỦ CÔNG)  -->
         <!-- ======================================================== -->
         <section class="adm-section" id="asec-transactions">
           <div class="adm-panel">
             <div class="panel-head">
-              <h2>Sổ Cái Kiểm Soát Tất Cả Giao Dịch</h2>
+              <div>
+                <h2>Sổ Cái Kiểm Soát Tất Cả Giao Dịch</h2>
+                <p class="adm-muted">Phân biệt rõ ràng các giao dịch xử lý <strong style="color:#059669;">TỰ ĐỘNG</strong> và các giao dịch Admin xử lý <strong style="color:#B45309;">THỦ CÔNG</strong></p>
+              </div>
             </div>
-            <div class="filter-grid" style="margin-bottom:16px;">
+            <div class="filter-grid filter-grid--7" style="margin-bottom:16px;">
               <input type="text" id="tx-f-user" class="adm-input" placeholder="User hoặc Mã GD..." />
+              <select id="tx-f-approval" class="adm-select">
+                <option value="">Tất cả cơ chế (Tự động + Thủ công)</option>
+                <option value="AUTO">&#9889; TỰ ĐỘNG</option>
+                <option value="MANUAL">&#9997; THỦ CÔNG</option>
+              </select>
               <select id="tx-f-type" class="adm-select">
                 <option value="">Tất cả loại GD</option>
                 <option value="TOPUP">TOPUP (Nạp tiền)</option>
@@ -595,10 +608,11 @@
                     <th>Mã giao dịch</th>
                     <th>Người dùng</th>
                     <th>Loại GD</th>
+                    <th>Cơ chế duyệt</th>
                     <th>Biến động</th>
                     <th>Số dư trước</th>
                     <th>Số dư sau</th>
-                    <th>Admin xử lý</th>
+                    <th>Người xử lý</th>
                     <th>Thời gian</th>
                   </tr>
                 </thead>
@@ -803,7 +817,7 @@
   </div>
 
   <script src="/static/vendor/jsQR.js"></script>
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/admin_app.js"></script>
+  <script src="/static/js/api.js?v=2.5"></script>
+  <script src="/static/js/admin_app.js?v=2.5"></script>
 </body>
 </html>

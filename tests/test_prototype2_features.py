@@ -341,3 +341,116 @@ def test_p2_06_admin_custom_pass_plan_with_max_trips_cap(app):
     assert s2["payment_method"] == "MONTHLY_PASS"
     assert s2["card_status_after"] == "INSUFFICIENT_BALANCE"
     assert s2["qr_reissued"] is False
+
+
+
+def test_p2_07_split_single_vs_monthly_qr_tabs_home_pass_topup_dual_channels_and_admin_badges(app):
+    _, tok_u, _, _ = register_and_login_user(app, "split_tester", "split@example.com", "Hoàng Tách Biệt")
+    _, adm_token, _, _ = login_admin(app)
+    client = app.test_client()
+    u_auth = {"Authorization": f"Bearer {tok_u}"}
+    adm_auth = {"Authorization": f"Bearer {adm_token}"}
+
+    # 1. With 0 VND & no Monthly Pass, BOTH explicit SINGLE and MONTHLY QR tabs reject cleanly
+    r_single_empty = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "SINGLE"})
+    assert r_single_empty.status_code == 400
+    assert r_single_empty.get_json()["error"]["code"] == "INSUFFICIENT_BALANCE"
+
+    r_monthly_empty = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "MONTHLY"})
+    assert r_monthly_empty.status_code == 400
+    assert r_monthly_empty.get_json()["error"]["code"] == "NO_ACTIVE_PASS"
+
+    # 2. Direct Monthly Pass AUTO Top-up (from Home Page module: purpose='MONTHLY_PASS', topup_channel='AUTO')
+    plans = client.get("/api/passes/plans").get_json()["data"]["plans"]
+    weekly_plan = next(p for p in plans if p["code"] == "WEEKLY_COMMUTER")  # 30.000 VND
+
+    auto_pass_order = client.post(
+        "/api/topups",
+        headers=u_auth,
+        json={
+            "topup_channel": "AUTO",
+            "purpose": "MONTHLY_PASS",
+            "target_plan_id": weekly_plan["id"],
+        },
+    ).get_json()["data"]
+    assert auto_pass_order["amount"] == 30000
+    assert auto_pass_order["topup_channel"] == "AUTO"
+    assert auto_pass_order["purpose"] == "MONTHLY_PASS"
+
+    # Settle via Auto Bank Statement Reconciliation -> Auto-activates Monthly Pass AND marks TỰ ĐỘNG!
+    acc_num = auto_pass_order["bank"]["account_number"]
+    csv_auto = f"bank_tx_id,account_number,amount_in,description\nFT-AUTO-PASS-01,{acc_num},30000,CK {auto_pass_order['transfer_content']}"
+    imp = client.post(
+        "/api/admin/reconciliation/import",
+        headers=adm_auth,
+        json={"content": csv_auto, "format": "csv"},
+    ).get_json()["data"]
+    assert imp["auto_approved"] == 1
+
+    # Verify Monthly Pass is now ACTIVE while Wallet Balance is 0 VND (spent on pass):
+    # - MONTHLY tab issues QR & scans for 0 VND!
+    # - SINGLE tab STILL rejects because Wallet Balance is 0 VND (< 4.000 VND)!
+    m_qr = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "MONTHLY"})
+    assert m_qr.status_code == 200
+    assert m_qr.get_json()["data"]["ticket_mode"] == "MONTHLY"
+
+    s_qr_still_empty = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "SINGLE"})
+    assert s_qr_still_empty.status_code == 400
+
+    # 3. Create a MANUAL Top-up Request (Cash at counter: topup_channel='MANUAL', 20.000 VND for Wallet)
+    manual_order = client.post(
+        "/api/topups",
+        headers=u_auth,
+        json={
+            "topup_channel": "MANUAL",
+            "payment_method_detail": "CASH_COUNTER",
+            "purpose": "WALLET",
+            "amount": 20000,
+            "note": "Nộp tiền mặt tại Quầy Bến Thành #BL999",
+        },
+    ).get_json()["data"]
+    assert manual_order["topup_channel"] == "MANUAL"
+    assert manual_order["status"] == "PROCESSING"
+    assert manual_order["qr"] is None  # Manual request has no auto bank QR
+
+    # Even if bank statement has that code, MANUAL channel is NOT auto-approved by bank reconciler!
+    csv_try = f"bank_tx_id,account_number,amount_in,description\nFT-TRY-MANUAL,{acc_num},20000,{manual_order['transfer_content']}"
+    imp_manual = client.post(
+        "/api/admin/reconciliation/import",
+        headers=adm_auth,
+        json={"content": csv_try, "format": "csv"},
+    ).get_json()["data"]
+    assert imp_manual["auto_approved"] == 0
+
+    # Admin manually approves the cash request -> marks THỦ CÔNG ('MANUAL')!
+    adm_conf = client.post(
+        f"/api/admin/topups/{manual_order['id']}/confirm",
+        headers=adm_auth,
+        json={"bank_reference": "CASH-RECEIPT-BL999", "note": "Đã thu tiền mặt tại quầy"},
+    ).get_json()["data"]
+    assert adm_conf["approval_mode"] == "MANUAL"
+    assert adm_conf["approval_badge_text"] == "THỦ CÔNG"
+
+    # Now BOTH SINGLE QR (Wallet = 20.000 VND -> -4.000 VND) and MONTHLY QR (Pass -> 0 VND) work independently!
+    s_tok = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "SINGLE"}).get_json()["data"]["qr_token"]
+    m_tok = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "MONTHLY"}).get_json()["data"]["qr_token"]
+
+    scan_single = client.post("/api/qr/scan", headers=adm_auth, json={"qr_token": s_tok}).get_json()["data"]
+    assert scan_single["payment_method"] == "WALLET"
+    assert scan_single["amount"] == 4000
+    assert scan_single["balance_after"] == 16000
+
+    scan_monthly = client.post("/api/qr/scan", headers=adm_auth, json={"qr_token": m_tok}).get_json()["data"]
+    assert scan_monthly["payment_method"] == "MONTHLY_PASS"
+    assert scan_monthly["amount"] == 0
+    assert scan_monthly["balance_after"] == 16000
+
+    # 4. Verify Admin Transactions endpoint marks TỰ ĐỘNG vs THỦ CÔNG and filters accurately!
+    auto_txs = client.get("/api/admin/transactions?user=split_tester&approval_mode=AUTO", headers=adm_auth).get_json()["data"]["transactions"]
+    manual_txs = client.get("/api/admin/transactions?user=split_tester&approval_mode=MANUAL", headers=adm_auth).get_json()["data"]["transactions"]
+
+    assert len(auto_txs) >= 2
+    assert all(t["approval_badge_text"] == "TỰ ĐỘNG" for t in auto_txs)
+    assert len(manual_txs) == 1
+    assert manual_txs[0]["approval_badge_text"] == "THỦ CÔNG"
+    assert manual_txs[0]["amount"] == 20000

@@ -490,11 +490,12 @@
   // 3. ADMIN TOP-UP VERIFICATION
   // =========================================================================
   async function loadAdminTopups() {
+    const channel = document.getElementById("filter-topup-channel")?.value || "";
     const status = document.getElementById("filter-topup-status").value;
     const user = document.getElementById("filter-topup-query").value.trim();
     try {
       const data = await VP.api(
-        `/api/admin/topups?status=${encodeURIComponent(status)}&user=${encodeURIComponent(user)}`
+        `/api/admin/topups?channel=${encodeURIComponent(channel)}&status=${encodeURIComponent(status)}&user=${encodeURIComponent(user)}`
       );
       const tbody = document.getElementById("tbody-admin-topups");
       if (!data.topups.length) {
@@ -504,19 +505,37 @@
       tbody.innerHTML = data.topups
         .map((t) => {
           const canAct = ["PENDING", "PROCESSING"].includes(t.status);
+          const modePillHtml =
+            t.approval_mode === "AUTO"
+              ? `<div style="margin-top:4px;"><span class="mode-pill mode-pill--AUTO">&#9889; TỰ ĐỘNG</span></div>`
+              : t.approval_mode === "MANUAL"
+              ? `<div style="margin-top:4px;"><span class="mode-pill mode-pill--MANUAL">&#9997; THỦ CÔNG</span></div>`
+              : "";
+          const purposeTag =
+            t.purpose === "MONTHLY_PASS"
+              ? `<div style="font-size:0.74rem;color:#0F766E;font-weight:700;">&#127915; ${VP.escapeHtml(t.target_plan_name || "Vé Tháng")}</div>`
+              : `<div class="adm-muted" style="font-size:0.74rem;">Ví Vé Lượt</div>`;
+
           return `
             <tr>
               <td class="mono">${VP.escapeHtml(t.transaction_code)}</td>
               <td><strong>${VP.escapeHtml(t.user_name)}</strong><br/><span class="adm-muted">@${VP.escapeHtml(t.username)}</span></td>
-              <td><strong style="color:#059669;">${VP.escapeHtml(t.amount_formatted)}</strong></td>
-              <td class="mono">${VP.escapeHtml(t.transfer_content)}</td>
-              <td><span class="badge badge--${t.status}">${t.status}</span><div class="adm-muted" style="font-size:0.72rem;margin-top:2px;">${VP.escapeHtml(t.payment_provider || "")}</div></td>
+              <td><strong style="color:#059669;">${VP.escapeHtml(t.amount_formatted)}</strong>${purposeTag}</td>
+              <td>
+                <strong>${VP.escapeHtml(t.channel_label || t.topup_channel)}</strong>
+                <div class="mono" style="font-size:0.78rem;">${VP.escapeHtml(t.transfer_content)}</div>
+                ${t.note ? `<div class="adm-muted" style="font-size:0.75rem;max-width:220px;">${VP.escapeHtml(t.note)}</div>` : ""}
+              </td>
+              <td>
+                <span class="badge badge--${t.status}">${t.status}</span>
+                ${modePillHtml}
+              </td>
               <td class="mono">${VP.escapeHtml(t.bank_reference || "—")}</td>
               <td>${VP.formatDateTime(t.created_at)}</td>
               <td>
                 ${
                   canAct
-                    ? `<button class="adm-btn adm-btn--emerald adm-btn--sm" data-confirm-topup="${t.id}" data-code="${VP.escapeHtml(t.transaction_code)}" data-amt="${VP.escapeHtml(t.amount_formatted)}" data-content="${VP.escapeHtml(t.transfer_content)}">Duyệt</button>
+                    ? `<button class="adm-btn adm-btn--emerald adm-btn--sm" data-confirm-topup="${t.id}" data-code="${VP.escapeHtml(t.transaction_code)}" data-amt="${VP.escapeHtml(t.amount_formatted)}" data-content="${VP.escapeHtml(t.transfer_content)}">Duyệt thủ công</button>
                        <button class="adm-btn adm-btn--danger adm-btn--sm" data-reject-topup="${t.id}">Từ chối</button>`
                     : `<span class="adm-muted">Đã đóng</span>`
                 }
@@ -741,6 +760,7 @@
   async function loadAdminTransactions() {
     const q = new URLSearchParams({
       user: document.getElementById("tx-f-user").value.trim(),
+      approval_mode: document.getElementById("tx-f-approval")?.value || "",
       type: document.getElementById("tx-f-type").value,
       date_from: document.getElementById("tx-f-from").value,
       date_to: document.getElementById("tx-f-to").value,
@@ -750,23 +770,28 @@
       const data = await VP.api(`/api/admin/transactions?${q.toString()}`);
       const tbody = document.getElementById("tbody-admin-tx");
       if (!data.transactions.length) {
-        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#64748B;">Không có giao dịch khớp bộ lọc.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#64748B;">Không có giao dịch khớp bộ lọc.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.transactions
-        .map(
-          (t) => `
+        .map((t) => {
+          const isManual = t.approval_mode === "MANUAL";
+          const modeBadge = isManual
+            ? `<span class="mode-pill mode-pill--MANUAL">&#9997; THỦ CÔNG</span>`
+            : `<span class="mode-pill mode-pill--AUTO">&#9889; TỰ ĐỘNG</span>`;
+          return `
           <tr>
-            <td class="mono">${VP.escapeHtml(t.transaction_code)}</td>
+            <td class="mono">${VP.escapeHtml(t.transaction_code)}<div class="adm-muted" style="font-size:0.73rem;">${VP.escapeHtml(t.description)}</div></td>
             <td><strong>${VP.escapeHtml(t.user_name)}</strong> (@${VP.escapeHtml(t.username)})</td>
             <td><span class="badge badge--PROCESSING">${VP.escapeHtml(t.transaction_type)}</span></td>
+            <td>${modeBadge}</td>
             <td><strong style="color:${t.signed_amount_formatted.startsWith("-") ? "#DC2626" : "#059669"};">${VP.escapeHtml(t.signed_amount_formatted)}</strong></td>
             <td>${VP.escapeHtml(t.balance_before_formatted)}</td>
             <td><strong>${VP.escapeHtml(t.balance_after_formatted)}</strong></td>
-            <td>${VP.escapeHtml(t.admin_name || "Hệ thống")}</td>
+            <td>${VP.escapeHtml(t.admin_name || "Hệ thống tự động")}</td>
             <td>${VP.formatDateTime(t.created_at)}</td>
-          </tr>`
-        )
+          </tr>`;
+        })
         .join("");
     } catch (err) {
       VP.toast(err.message, "danger");

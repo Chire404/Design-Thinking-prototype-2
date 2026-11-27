@@ -119,6 +119,7 @@ def adjust_balance(user_id: int):
 def transactions_list():
     items = list_admin_transactions(
         tx_type=request.args.get("type", ""),
+        approval_mode=request.args.get("approval_mode", ""),
         user_query=request.args.get("user", ""),
         date_from=request.args.get("date_from", ""),
         date_to=request.args.get("date_to", ""),
@@ -159,6 +160,8 @@ def topups_list():
     items = list_admin_topups(
         status_filter=request.args.get("status", ""),
         user_query=request.args.get("user", ""),
+        channel_filter=request.args.get("channel", ""),
+        approval_mode_filter=request.args.get("approval_mode", ""),
     )
     return api_success({"topups": items})
 

@@ -1,13 +1,19 @@
-/* VeloPass User Transit App Controller: Dynamic QR Lifecycle, Wallet Top-up & Real-time SSE */
+/* VeloPass Prototype 2.5 User App Controller:
+ * - Separated Vé Lượt (SINGLE) & Vé Tháng (MONTHLY) tabs + independent Dynamic QR codes
+ * - Home Page Direct Monthly Pass Top-up & Purchase module
+ * - Separated Top-up Requests: AUTO (Bank Transfer / VietQR) vs MANUAL (Cash / Counter / Other)
+ */
 (() => {
   VP.registerServiceWorker();
 
   const state = {
     activeView: "home",
+    homeQrMode: "SINGLE", // 'SINGLE' | 'MONTHLY'
+    topupChannel: "AUTO", // 'AUTO' | 'MANUAL'
     snapshot: null,
-    qr: null, // { qr_token, qr_svg_data_uri, expires_at, ttl_seconds }
-    qrTimerId: null,
-    qrRequestInFlight: false,
+    qrSingle: null,
+    qrMonthly: null,
+    qrInFlight: { SINGLE: false, MONTHLY: false },
     activeTopup: null,
     deferredInstallPrompt: null,
     sse: null,
@@ -15,25 +21,32 @@
 
   const STATUS_LABELS = {
     ACTIVE: { text: "ĐANG HOẠT ĐỘNG", cls: "" },
-    INSUFFICIENT_BALANCE: { text: "KHÔNG ĐỦ SỐ DƯ", cls: "badge--warn" },
+    INSUFFICIENT_BALANCE: { text: "CHƯA ĐỦ SỐ DƯ", cls: "badge--warn" },
     SUSPENDED: { text: "ĐÃ BỊ KHÓA", cls: "badge--danger" },
     PENDING: { text: "CHỜ XÁC MINH", cls: "badge--warn" },
   };
 
-  // --- Navigation ---
+  // --- View & Tab Navigation ---
   function switchView(viewName) {
+    if (viewName === "card") viewName = "single-ticket";
+    if (viewName === "passes") viewName = "monthly-pass";
     state.activeView = viewName;
+
     document.querySelectorAll(".app-view").forEach((v) => {
       v.classList.toggle("active", v.id === `view-${viewName}`);
     });
     document.querySelectorAll("[data-nav]").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.nav === viewName);
     });
+
     if (viewName === "history") loadFullHistory();
     if (viewName === "account") loadSupportTickets();
-    if (viewName === "passes") loadMyPasses();
-    if (viewName === "card" && state.snapshot?.card?.qr_eligible && !state.qr) {
-      issueDynamicQR(false);
+    if (viewName === "monthly-pass") {
+      loadMyPasses();
+      if (state.snapshot?.active_pass && !state.qrMonthly) issueModeQR("MONTHLY", false);
+    }
+    if (viewName === "single-ticket") {
+      syncAllQRScreens();
     }
   }
 
@@ -45,13 +58,55 @@
   });
 
   if (location.hash) {
-    const target = location.hash.replace("#", "");
-    if (["home", "card", "passes", "topup", "history", "account"].includes(target)) {
-      switchView(target);
+    const h = location.hash.replace("#", "");
+    if (["home", "single-ticket", "monthly-pass", "card", "passes", "topup", "history", "account"].includes(h)) {
+      switchView(h);
     }
   }
 
-  // --- PWA Install Prompt ---
+  // --- Switch Top-up Channel Tabs (AUTO vs MANUAL) ---
+  function switchTopupChannel(chan, presetPurpose = null, presetPlanId = null) {
+    state.topupChannel = chan === "MANUAL" ? "MANUAL" : "AUTO";
+    document.querySelectorAll("[data-topup-chan]").forEach((b) => {
+      b.classList.toggle("active", b.dataset.topupChan === state.topupChannel);
+    });
+    document.getElementById("panel-topup-auto").style.display = state.topupChannel === "AUTO" ? "block" : "none";
+    document.getElementById("panel-topup-manual").style.display = state.topupChannel === "MANUAL" ? "block" : "none";
+
+    if (presetPurpose) {
+      if (state.topupChannel === "AUTO") {
+        const sel = document.getElementById("auto-topup-purpose");
+        sel.value = presetPurpose;
+        sel.dispatchEvent(new Event("change"));
+        if (presetPlanId) document.getElementById("auto-topup-plan").value = String(presetPlanId);
+      } else {
+        const sel = document.getElementById("manual-topup-purpose");
+        sel.value = presetPurpose;
+        sel.dispatchEvent(new Event("change"));
+        if (presetPlanId) {
+          document.getElementById("manual-topup-plan").value = String(presetPlanId);
+          syncManualPlanAmount();
+        }
+      }
+    }
+  }
+
+  document.querySelectorAll("[data-topup-chan]").forEach((btn) => {
+    btn.addEventListener("click", () => switchTopupChannel(btn.dataset.topupChan));
+  });
+
+  // --- Home QR Mode Switcher (SINGLE vs MONTHLY) ---
+  document.querySelectorAll("[data-home-qrmode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.homeQrMode = btn.dataset.homeQrmode;
+      document.querySelectorAll("[data-home-qrmode]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.homeQrmode === state.homeQrMode);
+      });
+      syncAllQRScreens();
+    });
+  });
+
+  // --- PWA Install ---
   window.addEventListener("beforeinstallprompt", (e) => {
     e.preventDefault();
     state.deferredInstallPrompt = e;
@@ -70,51 +125,164 @@
   document.getElementById("btn-install-pwa").onclick = triggerInstallPWA;
   document.getElementById("btn-install-pwa-desktop").onclick = triggerInstallPWA;
 
-  // --- Render Dashboard Snapshot ---
+  // --- Populate Plan Selectors Across Home & Top-up Forms ---
+  function populatePlanDropdowns(plans) {
+    if (!plans || !plans.length) return;
+    const optsHtml = plans
+      .map(
+        (p) =>
+          `<option value="${p.id}" data-price="${p.price}">${VP.escapeHtml(p.name)} — ${VP.escapeHtml(p.price_formatted)}</option>`
+      )
+      .join("");
+    ["home-pass-plan-select", "auto-topup-plan", "manual-topup-plan"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        const prev = el.value;
+        el.innerHTML = optsHtml;
+        if (prev) el.value = prev;
+      }
+    });
+  }
+
+  function syncManualPlanAmount() {
+    const purpose = document.getElementById("manual-topup-purpose").value;
+    const planSel = document.getElementById("manual-topup-plan");
+    const amtInput = document.getElementById("manual-amount-input");
+    if (purpose === "MONTHLY_PASS" && planSel.selectedOptions[0]) {
+      amtInput.value = planSel.selectedOptions[0].dataset.price;
+      amtInput.readOnly = true;
+    } else {
+      amtInput.readOnly = false;
+    }
+  }
+
+  document.getElementById("auto-topup-purpose").addEventListener("change", (e) => {
+    const isPass = e.target.value === "MONTHLY_PASS";
+    document.getElementById("auto-plan-field").style.display = isPass ? "block" : "none";
+    document.getElementById("auto-amount-block").style.display = isPass ? "none" : "block";
+  });
+
+  document.getElementById("manual-topup-purpose").addEventListener("change", (e) => {
+    const isPass = e.target.value === "MONTHLY_PASS";
+    document.getElementById("manual-plan-field").style.display = isPass ? "block" : "none";
+    syncManualPlanAmount();
+  });
+  document.getElementById("manual-topup-plan").addEventListener("change", syncManualPlanAmount);
+
+  // --- Home Page Direct Monthly Pass Top-up Actions ---
+  document.getElementById("btn-home-pass-auto-topup").onclick = async () => {
+    const planId = Number(document.getElementById("home-pass-plan-select").value);
+    if (!planId) return;
+    try {
+      const order = await VP.api("/api/topups", {
+        method: "POST",
+        body: {
+          topup_channel: "AUTO",
+          purpose: "MONTHLY_PASS",
+          target_plan_id: planId,
+        },
+      });
+      switchView("topup");
+      switchTopupChannel("AUTO", "MONTHLY_PASS", planId);
+      showTopupOrder(order);
+      VP.toast(
+        `Đã tạo mã VietQR nạp ${order.amount_formatted} cho Vé Tháng! Sau khi chuyển khoản khớp, Vé Tháng sẽ tự kích hoạt.`,
+        "success"
+      );
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    }
+  };
+
+  document.getElementById("btn-home-pass-manual-topup").onclick = () => {
+    const planId = Number(document.getElementById("home-pass-plan-select").value);
+    switchView("topup");
+    switchTopupChannel("MANUAL", "MONTHLY_PASS", planId);
+    VP.toast("Hãy chọn hình thức thanh toán thủ công (Tiền mặt/Khác) và gửi Request cho Admin.", "info");
+  };
+
+  document.getElementById("btn-home-pass-wallet-buy").onclick = async () => {
+    const sel = document.getElementById("home-pass-plan-select");
+    const planId = Number(sel.value);
+    const label = sel.selectedOptions[0]?.textContent || "Gói Vé Tháng";
+    if (!planId) return;
+    if (!confirm(`Thanh toán trực tiếp từ Số dư Ví hiện có để kích hoạt "${label}"?`)) return;
+    try {
+      const res = await VP.api("/api/passes/purchase", {
+        method: "POST",
+        body: { plan_id: planId, auto_renew: false },
+      });
+      if (res.next_qr) state.qrMonthly = res.next_qr;
+      state.homeQrMode = "MONTHLY";
+      document.querySelectorAll("[data-home-qrmode]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.homeQrmode === "MONTHLY");
+      });
+      VP.toast("Đã kích hoạt Vé Tháng từ Số dư Ví thành công!", "success");
+      await refreshDashboard();
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    }
+  };
+
+  // --- Render Snapshot ---
   function renderSnapshot(snap) {
     state.snapshot = snap;
-    const { user, wallet, card, system, recent_usage, recent_topups, notifications, unread_notifications } = snap;
+    const { user, wallet, card, active_pass, pass_plans, system, recent_usage, recent_topups, notifications, unread_notifications } = snap;
+
+    populatePlanDropdowns(pass_plans || []);
 
     document.getElementById("ui-user-fullname").textContent = user.full_name;
     document.getElementById("ui-card-holder").textContent = user.full_name;
-    document.getElementById("pass-holder").textContent = user.full_name;
 
     const vCard = document.getElementById("ui-virtual-card");
     vCard.dataset.status = card.status;
 
     const stMeta = STATUS_LABELS[card.status] || { text: card.status, cls: "badge--warn" };
     const badge1 = document.getElementById("ui-card-status-badge");
-    const badge2 = document.getElementById("pass-status-badge");
     badge1.textContent = stMeta.text;
     badge1.className = `card-status-badge ${stMeta.cls}`;
-    badge2.textContent = stMeta.text;
-    badge2.className = `card-status-badge ${stMeta.cls}`;
 
-    document.getElementById("ui-card-balance").textContent = wallet.balance_formatted;
-    document.getElementById("pass-balance").textContent = wallet.balance_formatted;
-    document.getElementById("topup-current-balance").textContent = wallet.balance_formatted;
-    document.getElementById("fullscreen-balance").textContent = wallet.balance_formatted;
-    const passBalEl = document.getElementById("pass-wallet-balance");
-    if (passBalEl) passBalEl.textContent = wallet.balance_formatted;
+    // Single-ticket tab metadata
+    const singleEligible = user.status === "ACTIVE" && wallet.status === "ACTIVE" && wallet.balance >= system.fare_amount;
+    const singleBadge = document.getElementById("single-status-badge");
+    singleBadge.textContent = singleEligible ? "VÉ LƯỢT SẴN SÀNG" : "CHƯA ĐỦ SỐ DƯ";
+    singleBadge.className = `card-status-badge ${singleEligible ? "" : "badge--warn"}`;
+    document.getElementById("single-card-number").textContent = card.card_number;
+    document.getElementById("single-balance").textContent = wallet.balance_formatted;
+    document.getElementById("single-fare").textContent = `${system.fare_formatted} / lượt`;
+    document.getElementById("single-remaining-trips").textContent = `${wallet.remaining_trips} lượt`;
 
-    const passRibbon = document.getElementById("ui-card-pass-ribbon");
-    if (snap.active_pass) {
-      passRibbon.style.display = "inline-flex";
-      passRibbon.innerHTML = `&#127915; ${VP.escapeHtml(snap.active_pass.plan_name.toUpperCase())} &bull; CÒN ${snap.active_pass.remaining_days} NGÀY (0 VNĐ/LƯỢT)`;
-      document.getElementById("ui-card-trips").textContent =
-        `Đang ưu tiên Vé Tháng (Đã đi ${snap.active_pass.trips_used} lượt • Miễn phí qua cổng)`;
-      document.getElementById("pass-fare").textContent = "0 VNĐ (Vé Tháng)";
+    // Monthly-pass tab badge
+    const monthlyBadge = document.getElementById("monthly-status-badge");
+    if (active_pass) {
+      monthlyBadge.textContent = `CÒN ${active_pass.remaining_days} NGÀY`;
+      monthlyBadge.className = "status-pill status-pill--SUCCESS";
     } else {
-      passRibbon.style.display = "none";
-      document.getElementById("ui-card-trips").textContent =
-        card.status === "ACTIVE"
-          ? `Tương đương ~${wallet.remaining_trips} lượt đi (${system.fare_formatted}/lượt)`
-          : `Cần tối thiểu ${system.fare_formatted} hoặc mua Vé Tháng để mở cổng`;
-      document.getElementById("pass-fare").textContent = system.fare_formatted;
+      monthlyBadge.textContent = "CHƯA KÍCH HOẠT";
+      monthlyBadge.className = "status-pill";
     }
 
+    document.getElementById("ui-card-balance").textContent = wallet.balance_formatted;
+    document.getElementById("pass-wallet-balance").textContent = wallet.balance_formatted;
+    document.getElementById("fullscreen-balance").textContent = wallet.balance_formatted;
+
+    const passRibbon = document.getElementById("ui-card-pass-ribbon");
+    const homePassText = document.getElementById("home-pass-summary-text");
+    if (active_pass) {
+      passRibbon.style.display = "inline-flex";
+      passRibbon.innerHTML = `&#127915; ${VP.escapeHtml(active_pass.plan_name.toUpperCase())} &bull; CÒN ${active_pass.remaining_days} NGÀY`;
+      homePassText.innerHTML = `<strong class="text-success">Đang có: ${VP.escapeHtml(active_pass.plan_name)} (còn ${active_pass.remaining_days} ngày)</strong> — Nạp thêm sẽ cộng dồn ngày!`;
+    } else {
+      passRibbon.style.display = "none";
+      homePassText.textContent = "Bạn chưa có Vé Tháng — Nạp ngay bên dưới để quét cổng 0 VNĐ không giới hạn lượt!";
+    }
+
+    document.getElementById("ui-card-trips").textContent =
+      singleEligible
+        ? `Ví Vé Lượt tương đương ~${wallet.remaining_trips} lượt (${system.fare_formatted}/lượt)`
+        : `Ví Vé Lượt dưới ${system.fare_formatted} (Cần nạp thêm nếu đi Vé Lượt)`;
+
     document.getElementById("ui-card-number").textContent = card.card_number;
-    document.getElementById("pass-card-number").textContent = card.card_number;
     document.getElementById("fullscreen-card-num").textContent = card.card_number;
     document.getElementById("ui-card-issued").textContent = (card.issued_at || "").slice(0, 10);
 
@@ -122,13 +290,11 @@
     document.getElementById("ui-wallet-total-spent").textContent = wallet.total_spent_formatted;
     document.getElementById("ui-low-balance-banner").style.display = wallet.low_balance ? "block" : "none";
 
-    // Profile inputs
     document.getElementById("acc-username").value = user.username;
     document.getElementById("acc-email").value = user.email;
     document.getElementById("acc-fullname").value = user.full_name;
     document.getElementById("acc-phone").value = user.phone || "";
 
-    // Notification badge
     const nb = document.getElementById("ui-notif-badge");
     if (unread_notifications > 0) {
       nb.style.display = "inline-flex";
@@ -142,7 +308,7 @@
     renderCompactNotifications(notifications, "ui-home-notifications", 5);
     renderCompactNotifications(notifications, "modal-notif-list", 30);
 
-    syncQRDisplayWithCardState();
+    syncAllQRScreens();
   }
 
   function renderCompactUsage(items) {
@@ -157,15 +323,14 @@
         (u) => `
         <div class="tx-item">
           <div>
-            <div class="tx-item__title">Quét vé qua cổng</div>
+            <div class="tx-item__title">${u.payment_method === "MONTHLY_PASS" ? "Quét cổng Vé Tháng" : "Quét cổng Vé Lượt"}</div>
             <div class="tx-item__sub">${VP.escapeHtml(u.transaction_code)} &bull; ${VP.formatDateTime(u.created_at)}</div>
           </div>
           <div class="tx-item__right">
-            <div class="tx-item__amt text-danger">${VP.escapeHtml(u.amount_formatted)}</div>
-            <div class="tx-item__sub">Còn ${VP.escapeHtml(u.balance_after_formatted)}</div>
+            <div class="tx-item__amt ${u.payment_method === "MONTHLY_PASS" ? "text-success" : "text-danger"}">${VP.escapeHtml(u.amount_formatted)}</div>
+            <div class="tx-item__sub">Ví: ${VP.escapeHtml(u.balance_after_formatted)}</div>
           </div>
-        </div>
-      `
+        </div>`
       )
       .join("");
   }
@@ -173,7 +338,7 @@
   function renderCompactTopups(items) {
     const el = document.getElementById("ui-home-recent-topups");
     if (!items || !items.length) {
-      el.innerHTML = `<div class="empty-state">Chưa có giao dịch nạp tiền nào.</div>`;
+      el.innerHTML = `<div class="empty-state">Chưa có yêu cầu nạp tiền nào.</div>`;
       return;
     }
     el.innerHTML = items
@@ -182,25 +347,24 @@
         (t) => `
         <div class="tx-item" style="cursor:pointer;" data-open-topup="${t.id}">
           <div>
-            <div class="tx-item__title">Nạp ví (${VP.escapeHtml(t.bank_short_name || "Bank")})</div>
+            <div class="tx-item__title">${t.topup_channel === "MANUAL" ? "Request Thủ Công" : "Nạp Tự Động"} (${VP.escapeHtml(t.bank_short_name || "Bank")})</div>
             <div class="tx-item__sub">${VP.escapeHtml(t.transaction_code)} &bull; ${VP.formatDateTime(t.created_at)}</div>
           </div>
           <div class="tx-item__right">
             <div class="tx-item__amt text-success">+${VP.escapeHtml(t.amount_formatted)}</div>
             <span class="status-pill status-pill--${VP.escapeHtml(t.status)}">${VP.escapeHtml(t.status)}</span>
           </div>
-        </div>
-      `
+        </div>`
       )
       .join("");
 
     el.querySelectorAll("[data-open-topup]").forEach((row) => {
       row.onclick = async () => {
-        const id = Number(row.dataset.openTopup);
         try {
-          const detail = await VP.api(`/api/topups/${id}`);
-          showTopupOrder(detail);
+          const detail = await VP.api(`/api/topups/${Number(row.dataset.openTopup)}`);
           switchView("topup");
+          switchTopupChannel(detail.topup_channel || "AUTO");
+          showTopupOrder(detail);
         } catch (err) {
           VP.toast(err.message, "danger");
         }
@@ -225,113 +389,167 @@
             <div class="tx-item__sub">${VP.escapeHtml(n.message)}</div>
             <div class="tx-item__sub">${VP.formatDateTime(n.created_at)}</div>
           </div>
-        </div>
-      `
+        </div>`
       )
       .join("");
   }
 
-  // --- Dynamic QR State Machine ---
-  function syncQRDisplayWithCardState() {
-    const card = state.snapshot?.card;
-    if (!card) return;
+  // --- Independent Dynamic QR Lifecycle for SINGLE (Vé Lượt) & MONTHLY (Vé Tháng) ---
+  function isModeEligible(mode) {
+    const snap = state.snapshot;
+    if (!snap) return false;
+    if (snap.user.status !== "ACTIVE" || snap.wallet.status !== "ACTIVE") return false;
+    if (mode === "MONTHLY") return Boolean(snap.active_pass);
+    return Number(snap.wallet.balance) >= Number(snap.system.fare_amount);
+  }
 
-    const homeActive = document.getElementById("home-qr-active-box");
-    const homeLocked = document.getElementById("home-qr-locked-box");
-    const passActive = document.getElementById("pass-qr-active");
-    const passLocked = document.getElementById("pass-qr-locked");
-
-    if (card.status !== "ACTIVE") {
-      // Immediately disable QR and clear any token in memory
-      state.qr = null;
-      homeActive.style.display = "none";
-      passActive.style.display = "none";
-      homeLocked.style.display = "block";
-      passLocked.style.display = "block";
-      document.getElementById("modal-fullscreen-qr").style.display = "none";
-
-      let title = "Mã QR Đang Vô Hiệu Hóa";
-      let desc = `Số dư hiện tại dưới ${card.fare_formatted}. Vui lòng nạp thêm tiền để kích hoạt thẻ.`;
-      if (card.status === "SUSPENDED") {
-        title = "Thẻ Đang Bị Tạm Khóa";
-        desc = "Tài khoản đã bị Quản trị viên tạm khóa. Không thể sử dụng mã QR.";
-      } else if (card.status === "PENDING") {
-        title = "Thẻ Đang Chờ Xác Minh";
-        desc = "Tài khoản đang chờ xác minh trước khi kích hoạt mã QR.";
-      }
-
-      document.getElementById("home-qr-locked-title").textContent = title;
-      document.getElementById("home-qr-locked-desc").textContent = desc;
-      document.getElementById("pass-locked-title").textContent = title;
-      document.getElementById("pass-locked-desc").textContent = desc;
-      return;
-    }
-
-    // Card is ACTIVE!
-    homeLocked.style.display = "none";
-    passLocked.style.display = "none";
-
-    if (state.qr && state.qr.qr_svg_data_uri) {
-      renderQRVisual(state.qr);
-    } else {
-      issueDynamicQR(false);
+  async function issueModeQR(mode, showToast = false) {
+    const m = mode === "MONTHLY" ? "MONTHLY" : "SINGLE";
+    if (state.qrInFlight[m] || !isModeEligible(m)) return;
+    state.qrInFlight[m] = true;
+    try {
+      const qrData = await VP.api("/api/qr/issue", {
+        method: "POST",
+        body: { ticket_mode: m },
+      });
+      if (m === "MONTHLY") state.qrMonthly = qrData;
+      else state.qrSingle = qrData;
+      syncAllQRScreens();
+      if (showToast) VP.toast(`Đã cấp mã QR ${m === "MONTHLY" ? "Vé Tháng" : "Vé Lượt"} mới.`, "success");
+    } catch (_) {
+    } finally {
+      state.qrInFlight[m] = false;
     }
   }
 
-  function renderQRVisual(qrBundle) {
-    state.qr = qrBundle;
-    document.getElementById("home-qr-active-box").style.display = "flex";
-    document.getElementById("pass-qr-active").style.display = "flex";
-    document.getElementById("home-qr-img").src = qrBundle.qr_svg_data_uri;
-    document.getElementById("pass-qr-img").src = qrBundle.qr_svg_data_uri;
-    document.getElementById("fullscreen-qr-img").src = qrBundle.qr_svg_data_uri;
+  function syncAllQRScreens() {
+    if (!state.snapshot) return;
+    const { user, wallet, active_pass, system } = state.snapshot;
+    const suspended = user.status === "SUSPENDED" || wallet.status === "LOCKED";
+
+    // 1. Sync Single-Ride Ticket View
+    const singleOk = isModeEligible("SINGLE");
+    if (!singleOk) {
+      state.qrSingle = null;
+      document.getElementById("single-qr-active").style.display = "none";
+      document.getElementById("single-qr-locked").style.display = "block";
+      document.getElementById("single-locked-title").textContent = suspended
+        ? "Tài Khoản Đang Tạm Khóa"
+        : "Số Dư Ví Chưa Đủ Cho Vé Lượt";
+      document.getElementById("single-locked-desc").textContent = suspended
+        ? "Quản trị viên đã tạm khóa thẻ. Không thể tạo mã QR."
+        : `Số dư hiện tại (${wallet.balance_formatted}) dưới mức ${system.fare_formatted}.`;
+    } else {
+      document.getElementById("single-qr-locked").style.display = "none";
+      if (state.qrSingle?.qr_svg_data_uri) {
+        document.getElementById("single-qr-active").style.display = "flex";
+        document.getElementById("single-qr-img").src = state.qrSingle.qr_svg_data_uri;
+      } else {
+        issueModeQR("SINGLE", false);
+      }
+    }
+
+    // 2. Sync Monthly-Pass Ticket View
+    const monthlyOk = isModeEligible("MONTHLY");
+    if (!monthlyOk) {
+      state.qrMonthly = null;
+      document.getElementById("monthly-qr-active").style.display = "none";
+      document.getElementById("monthly-qr-locked").style.display = "block";
+    } else {
+      document.getElementById("monthly-qr-locked").style.display = "none";
+      if (state.qrMonthly?.qr_svg_data_uri) {
+        document.getElementById("monthly-qr-active").style.display = "flex";
+        document.getElementById("monthly-qr-img").src = state.qrMonthly.qr_svg_data_uri;
+      } else {
+        issueModeQR("MONTHLY", false);
+      }
+    }
+
+    // 3. Sync Home QR Dock (follows state.homeQrMode: 'SINGLE' | 'MONTHLY')
+    const homeMode = state.homeQrMode;
+    document.getElementById("home-qr-mode-heading").textContent =
+      homeMode === "MONTHLY" ? "Mã QR Vé Tháng Qua Cổng" : "Mã QR Vé Lượt Qua Cổng";
+    document.getElementById("home-qr-mode-sub").textContent =
+      homeMode === "MONTHLY"
+        ? "Miễn phí 0 VNĐ / lượt quét khi có Vé Tháng hiệu lực"
+        : `Trừ ${system.fare_formatted}/lượt từ Ví số dư & tự xoay mã mới`;
+
+    const homeEligible = isModeEligible(homeMode);
+    const homeQrObj = homeMode === "MONTHLY" ? state.qrMonthly : state.qrSingle;
+    const homeActive = document.getElementById("home-qr-active-box");
+    const homeLocked = document.getElementById("home-qr-locked-box");
+    const ctaBtn = document.getElementById("btn-home-locked-cta");
+
+    if (!homeEligible) {
+      homeActive.style.display = "none";
+      homeLocked.style.display = "block";
+      if (suspended) {
+        document.getElementById("home-qr-locked-title").textContent = "Thẻ Đang Bị Tạm Khóa";
+        document.getElementById("home-qr-locked-desc").textContent = "Tài khoản đang bị tạm khóa bởi Quản trị viên.";
+        ctaBtn.style.display = "none";
+      } else if (homeMode === "MONTHLY") {
+        document.getElementById("home-qr-locked-title").textContent = "Chưa Kích Hoạt Vé Tháng";
+        document.getElementById("home-qr-locked-desc").textContent =
+          "Hãy nạp hoặc mua gói Vé Tháng ngay ở khung phía trên để mở mã QR Vé Tháng!";
+        ctaBtn.style.display = "inline-flex";
+        ctaBtn.textContent = "Mở tab Đăng ký Vé Tháng";
+        ctaBtn.onclick = () => switchView("monthly-pass");
+      } else {
+        document.getElementById("home-qr-locked-title").textContent = "Ví Vé Lượt Chưa Đủ Số Dư";
+        document.getElementById("home-qr-locked-desc").textContent =
+          `Số dư Ví Vé Lượt cần tối thiểu ${system.fare_formatted}.`;
+        ctaBtn.style.display = "inline-flex";
+        ctaBtn.textContent = "Nạp tiền vào Ví ngay";
+        ctaBtn.onclick = () => switchView("topup");
+      }
+    } else {
+      homeLocked.style.display = "none";
+      if (homeQrObj?.qr_svg_data_uri) {
+        homeActive.style.display = "flex";
+        document.getElementById("home-qr-img").src = homeQrObj.qr_svg_data_uri;
+      } else {
+        issueModeQR(homeMode, false);
+      }
+    }
+
     updateQRCountdownTick();
   }
 
-  async function issueDynamicQR(showToastOnSuccess = false) {
-    if (state.qrRequestInFlight) return;
-    if (!state.snapshot?.card?.qr_eligible) return;
-    state.qrRequestInFlight = true;
-    try {
-      const qrData = await VP.api("/api/qr/issue", { method: "POST" });
-      renderQRVisual(qrData);
-      if (showToastOnSuccess) {
-        VP.toast("Đã cấp mã QR động mới.", "success");
-      }
-    } catch (err) {
-      if (err.code === "INSUFFICIENT_BALANCE" || err.code === "SUSPENDED_ACCOUNT") {
-        await refreshDashboard();
-      }
-    } finally {
-      state.qrRequestInFlight = false;
-    }
-  }
-
   function updateQRCountdownTick() {
-    if (!state.qr || !state.qr.expires_at) return;
-    const expiresMs = new Date(state.qr.expires_at).getTime();
-    const remainSec = Math.max(0, Math.ceil((expiresMs - Date.now()) / 1000));
-    const ttl = state.qr.ttl_seconds || 90;
-    const pct = Math.min(100, Math.max(0, (remainSec / ttl) * 100));
+    const updateBar = (qrObj, mode, textId, barId) => {
+      if (!qrObj || !qrObj.expires_at) return;
+      const remainSec = Math.max(0, Math.ceil((new Date(qrObj.expires_at).getTime() - Date.now()) / 1000));
+      const ttl = qrObj.ttl_seconds || 90;
+      const pct = Math.min(100, Math.max(0, (remainSec / ttl) * 100));
+      const tEl = document.getElementById(textId);
+      const bEl = document.getElementById(barId);
+      if (tEl) tEl.textContent = `Tự làm mới sau ${remainSec}s`;
+      if (bEl) bEl.style.width = `${pct}%`;
+      if (remainSec <= 2 && isModeEligible(mode)) {
+        issueModeQR(mode, false);
+      }
+    };
 
-    document.getElementById("home-qr-countdown").textContent = `Tự làm mới sau ${remainSec}s`;
-    document.getElementById("pass-qr-countdown").textContent = `Tự động đổi mã sau ${remainSec}s`;
-    document.getElementById("home-qr-progress").style.width = `${pct}%`;
-    document.getElementById("pass-qr-progress").style.width = `${pct}%`;
-
-    // Automatically rotate 2 seconds before expiration so User never holds an expired QR at the gate
-    if (remainSec <= 2 && state.snapshot?.card?.qr_eligible) {
-      issueDynamicQR(false);
-    }
+    updateBar(state.qrSingle, "SINGLE", "single-qr-countdown", "single-qr-progress");
+    updateBar(state.qrMonthly, "MONTHLY", "monthly-qr-countdown", "monthly-qr-progress");
+    const homeQr = state.homeQrMode === "MONTHLY" ? state.qrMonthly : state.qrSingle;
+    updateBar(homeQr, state.homeQrMode, "home-qr-countdown", "home-qr-progress");
   }
 
   setInterval(updateQRCountdownTick, 1000);
 
-  document.getElementById("btn-home-refresh-qr").onclick = () => issueDynamicQR(true);
-  document.getElementById("btn-pass-refresh").onclick = () => issueDynamicQR(true);
+  document.getElementById("btn-home-refresh-qr").onclick = () => issueModeQR(state.homeQrMode, true);
+  document.getElementById("btn-single-refresh").onclick = () => issueModeQR("SINGLE", true);
+  document.getElementById("btn-monthly-refresh").onclick = () => issueModeQR("MONTHLY", true);
 
   document.getElementById("btn-fullscreen-qr").onclick = () => {
-    if (!state.qr) return VP.toast("Mã QR chưa khả dụng. Vui lòng nạp đủ tối thiểu 4.000 VNĐ.", "warning");
+    const activeQr = state.homeQrMode === "MONTHLY" ? state.qrMonthly : state.qrSingle;
+    if (!activeQr) {
+      return VP.toast("Mã QR của chế độ này chưa khả dụng.", "warning");
+    }
+    document.getElementById("fullscreen-qr-title").textContent =
+      state.homeQrMode === "MONTHLY" ? "Trình QR Vé Tháng (0 VNĐ)" : "Trình QR Vé Lượt (4.000 VNĐ)";
+    document.getElementById("fullscreen-qr-img").src = activeQr.qr_svg_data_uri;
     document.getElementById("modal-fullscreen-qr").style.display = "flex";
   };
   document.getElementById("btn-close-fullscreen").onclick = () => {
@@ -341,10 +559,10 @@
     document.getElementById("modal-fullscreen-qr").style.display = "none";
   };
 
-  // --- Top-up Flow ---
-  document.querySelectorAll(".amt-chip").forEach((chip) => {
+  // --- Split Top-up Creation: AUTO vs MANUAL ---
+  document.querySelectorAll("#auto-amt-chips .amt-chip").forEach((chip) => {
     chip.onclick = () => {
-      document.querySelectorAll(".amt-chip").forEach((c) => c.classList.remove("active"));
+      document.querySelectorAll("#auto-amt-chips .amt-chip").forEach((c) => c.classList.remove("active"));
       chip.classList.add("active");
       document.getElementById("topup-amount-input").value = chip.dataset.amt;
     };
@@ -355,24 +573,40 @@
     const box = document.getElementById("active-topup-card");
     box.style.display = "block";
 
+    const isManual = order.topup_channel === "MANUAL";
+    document.getElementById("topup-detail-channel-chip").textContent = isManual
+      ? "REQUEST THỦ CÔNG • CHỜ ADMIN DUYỆT"
+      : "NẠP TỰ ĐỘNG • VIETQR 24/7";
+    document.getElementById("topup-detail-heading").textContent = isManual
+      ? "Phiếu Request Nạp Tiền Thủ Công"
+      : "Đơn Chuyển Khoản Nạp Tự Động";
+
     const stEl = document.getElementById("topup-order-status");
     stEl.textContent = order.status;
     stEl.className = `status-pill status-pill--${order.status}`;
 
     const bank = order.bank || order;
     document.getElementById("topup-tx-code").textContent = order.transaction_code;
-    document.getElementById("topup-bank-name").textContent = bank.bank_name || "";
+    document.getElementById("topup-channel-label").textContent = order.channel_label || order.topup_channel;
+    document.getElementById("topup-purpose-label").textContent =
+      order.purpose === "MONTHLY_PASS"
+        ? `Kích hoạt ${order.target_plan_name || "Gói Vé Tháng"}`
+        : "Ví Vé Lượt (Số dư tiêu chuẩn)";
+    document.getElementById("topup-bank-name").textContent = order.payment_method_label || bank.bank_name || "";
     document.getElementById("topup-acc-num").textContent = bank.account_number || "";
     document.getElementById("topup-acc-holder").textContent = bank.account_holder || "";
     document.getElementById("topup-order-amount").textContent = order.amount_formatted || VP.formatVND(order.amount);
     document.getElementById("topup-transfer-content").textContent = order.transfer_content;
-    const hintEl = document.getElementById("topup-auto-code-hint");
-    if (hintEl) hintEl.textContent = order.transfer_content;
-    document.getElementById("topup-instructions").textContent = bank.payment_instructions || "";
+    document.getElementById("topup-instructions").textContent = isManual
+      ? `Ghi chú của bạn: "${order.note || ""}". Quản trị viên sẽ kiểm tra phiếu thu/giao dịch và duyệt thủ công.`
+      : bank.payment_instructions || "";
 
-    const qrBox = box.querySelector(".topup-qr-box");
+    document.getElementById("row-acc-num").style.display = isManual ? "none" : "flex";
+    document.getElementById("row-acc-holder").style.display = isManual ? "none" : "flex";
+
+    const qrBox = document.getElementById("topup-qr-box");
     const qrSrc = order.qr?.custom_bank_qr_url || order.qr?.qr_svg_data_uri || "";
-    if (qrSrc && ["PENDING", "PROCESSING"].includes(order.status)) {
+    if (!isManual && qrSrc && ["PENDING", "PROCESSING"].includes(order.status)) {
       qrBox.style.display = "flex";
       document.getElementById("topup-qr-img").src = qrSrc;
     } else {
@@ -380,22 +614,63 @@
     }
 
     const actions = document.getElementById("topup-pending-actions");
-    actions.style.display = ["PENDING", "PROCESSING"].includes(order.status) ? "block" : "none";
-    const repBtn = document.getElementById("btn-report-transferred");
-    if (repBtn) repBtn.style.display = order.status === "PENDING" ? "block" : "none";
-    const cancelBtn = document.getElementById("btn-cancel-topup");
-    if (cancelBtn) cancelBtn.style.display = order.status === "PENDING" ? "block" : "none";
+    const isOpen = ["PENDING", "PROCESSING"].includes(order.status);
+    actions.style.display = isOpen ? "block" : "none";
+    document.getElementById("btn-auto-check-topup").style.display = !isManual && isOpen ? "block" : "none";
+    document.getElementById("btn-report-transferred").style.display = !isManual && order.status === "PENDING" ? "block" : "none";
+    document.getElementById("btn-cancel-topup").style.display = isOpen ? "block" : "none";
   }
 
-  document.getElementById("form-create-topup").addEventListener("submit", async (e) => {
+  // Form 1: AUTO Top-up Request
+  document.getElementById("form-create-topup-auto").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const btn = document.getElementById("btn-create-topup");
+    const btn = document.getElementById("btn-create-topup-auto");
     btn.disabled = true;
     try {
-      const amount = Number(document.getElementById("topup-amount-input").value);
-      const order = await VP.api("/api/topups", { method: "POST", body: { amount } });
+      const purpose = document.getElementById("auto-topup-purpose").value;
+      const payload = {
+        topup_channel: "AUTO",
+        payment_method_detail: "BANK_TRANSFER",
+        purpose,
+      };
+      if (purpose === "MONTHLY_PASS") {
+        payload.target_plan_id = Number(document.getElementById("auto-topup-plan").value);
+      } else {
+        payload.amount = Number(document.getElementById("topup-amount-input").value);
+      }
+      const order = await VP.api("/api/topups", { method: "POST", body: payload });
       showTopupOrder(order);
-      VP.toast(`Đã tạo đơn nạp ${order.amount_formatted}. Hãy quét mã VietQR để chuyển khoản.`, "success");
+      VP.toast(`Đã tạo đơn Nạp Tự Động ${order.amount_formatted}. Hãy quét mã VietQR để chuyển khoản.`, "success");
+      refreshDashboard();
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Form 2: MANUAL Top-up Request
+  document.getElementById("form-create-topup-manual").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("btn-create-topup-manual");
+    btn.disabled = true;
+    try {
+      const purpose = document.getElementById("manual-topup-purpose").value;
+      const payload = {
+        topup_channel: "MANUAL",
+        payment_method_detail: document.getElementById("manual-topup-method").value,
+        note: document.getElementById("manual-note-input").value.trim(),
+        purpose,
+      };
+      if (purpose === "MONTHLY_PASS") {
+        payload.target_plan_id = Number(document.getElementById("manual-topup-plan").value);
+      } else {
+        payload.amount = Number(document.getElementById("manual-amount-input").value);
+      }
+      const order = await VP.api("/api/topups", { method: "POST", body: payload });
+      showTopupOrder(order);
+      document.getElementById("manual-note-input").value = "";
+      VP.toast(`Đã gửi Request Nạp Thủ Công (${order.amount_formatted}) tới hàng đợi Admin!`, "success");
       refreshDashboard();
     } catch (err) {
       VP.toast(err.message, "danger");
@@ -406,15 +681,39 @@
 
   document.getElementById("btn-copy-acc").onclick = () => {
     if (state.activeTopup) {
-      const acc = state.activeTopup.bank?.account_number || state.activeTopup.account_number;
-      VP.copyText(acc, "số tài khoản");
+      VP.copyText(state.activeTopup.bank?.account_number || state.activeTopup.account_number, "số tài khoản");
     }
   };
   document.getElementById("btn-copy-amt").onclick = () => {
     if (state.activeTopup) VP.copyText(String(state.activeTopup.amount), "số tiền");
   };
   document.getElementById("btn-copy-content").onclick = () => {
-    if (state.activeTopup) VP.copyText(state.activeTopup.transfer_content, "nội dung chuyển khoản");
+    if (state.activeTopup) VP.copyText(state.activeTopup.transfer_content, "mã đối chiếu");
+  };
+
+  document.getElementById("btn-auto-check-topup").onclick = async () => {
+    if (!state.activeTopup) return;
+    const btn = document.getElementById("btn-auto-check-topup");
+    btn.disabled = true;
+    try {
+      const detail = await VP.api(`/api/topups/${state.activeTopup.id}/auto-check`, { method: "POST" });
+      showTopupOrder(detail);
+      if (detail.status === "SUCCESS") {
+        VP.toast("Đã khớp sao kê ngân hàng — Duyệt TỰ ĐỘNG thành công!", "success");
+        refreshDashboard();
+      } else {
+        VP.toast(
+          detail.live_bank_api_checked
+            ? "Đã quét API ngân hàng nhưng chưa thấy khoản chuyển khớp nội dung."
+            : "Hệ thống đang lắng nghe đối soát tự động (và hàng đợi Admin song song).",
+          "info"
+        );
+      }
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    } finally {
+      btn.disabled = false;
+    }
   };
 
   document.getElementById("btn-report-transferred").onclick = async () => {
@@ -422,10 +721,10 @@
     try {
       const updated = await VP.api(`/api/topups/${state.activeTopup.id}/report-transferred`, {
         method: "POST",
-        body: { note: "Khách hàng xác nhận đã chuyển khoản trên ứng dụng" },
+        body: { note: "Khách xác nhận đã chuyển khoản trên ứng dụng" },
       });
       showTopupOrder(updated);
-      VP.toast("Đã gửi yêu cầu đối soát. Ví sẽ tự cộng tiền ngay khi ngân hàng/Admin xác nhận.", "info");
+      VP.toast("Đã báo chuyển khoản thành công.", "info");
       refreshDashboard();
     } catch (err) {
       VP.toast(err.message, "danger");
@@ -437,59 +736,30 @@
     try {
       const updated = await VP.api(`/api/topups/${state.activeTopup.id}/cancel`, { method: "POST" });
       showTopupOrder(updated);
-      VP.toast("Đã hủy đơn nạp tiền.", "warning");
+      VP.toast("Đã hủy yêu cầu nạp tiền.", "warning");
       refreshDashboard();
     } catch (err) {
       VP.toast(err.message, "danger");
     }
   };
 
-  const btnAutoCheck = document.getElementById("btn-auto-check-topup");
-  if (btnAutoCheck) {
-    btnAutoCheck.onclick = async () => {
-      if (!state.activeTopup) return;
-      btnAutoCheck.disabled = true;
-      try {
-        const detail = await VP.api(`/api/topups/${state.activeTopup.id}/auto-check`, { method: "POST" });
-        showTopupOrder(detail);
-        if (detail.status === "SUCCESS") {
-          VP.toast("Đã đối chiếu khớp giao dịch ngân hàng — Cộng tiền tự động thành công!", "success");
-          refreshDashboard();
-        } else {
-          VP.toast(
-            detail.live_bank_api_checked
-              ? "Đã quét tài khoản ngân hàng nhưng chưa thấy giao dịch khớp mã nội dung."
-              : "Hệ thống đang lắng nghe đối soát tự động (và hàng đợi Admin song song).",
-            "info"
-          );
-        }
-      } catch (err) {
-        VP.toast(err.message, "danger");
-      } finally {
-        btnAutoCheck.disabled = false;
-      }
-    };
-  }
-
-  // --- Monthly Pass Management (Prototype 2) ---
+  // --- Monthly Pass Tab Details ---
   async function loadMyPasses() {
     try {
       const data = await VP.api("/api/passes/my");
       const activeBox = document.getElementById("ui-active-pass-body");
-      const pill = document.getElementById("my-pass-status-pill");
 
       if (data.active_pass) {
         const p = data.active_pass;
-        pill.style.display = "inline-block";
         activeBox.innerHTML = `
           <div class="active-pass-hero">
             <div style="font-size:0.75rem;opacity:0.85;letter-spacing:0.06em;">MÃ VÉ THÁNG: ${VP.escapeHtml(p.pass_code)}</div>
-            <div style="font-size:1.22rem;font-weight:900;margin:4px 0 10px;">${VP.escapeHtml(p.plan_name)}</div>
+            <div style="font-size:1.18rem;font-weight:900;margin:4px 0 10px;">${VP.escapeHtml(p.plan_name)}</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.84rem;background:rgba(0,0,0,0.2);padding:10px;border-radius:12px;">
               <div>Hết hạn: <strong>${VP.formatDateTime(p.expires_at)}</strong></div>
-              <div>Thời gian còn: <strong>${p.remaining_days} ngày</strong></div>
-              <div>Lượt đã đi: <strong>${VP.escapeHtml(p.trips_label)}</strong></div>
-              <div>Ưu đãi cổng: <strong>0 VNĐ / lượt</strong></div>
+              <div>Còn lại: <strong>${p.remaining_days} ngày</strong></div>
+              <div>Đã đi: <strong>${VP.escapeHtml(p.trips_label)}</strong></div>
+              <div>Phí qua cổng: <strong>0 VNĐ</strong></div>
             </div>
             <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:0.84rem;cursor:pointer;">
               <input type="checkbox" id="chk-pass-autorenew" ${p.auto_renew ? "checked" : ""} />
@@ -509,12 +779,7 @@
           }
         };
       } else {
-        pill.style.display = "none";
-        activeBox.innerHTML = `
-          <div class="empty-state">
-            Bạn chưa có gói Vé Tháng đang hiệu lực. Đăng ký ngay bên cạnh để đi lại không giới hạn (0 VNĐ/lượt quét)!
-          </div>
-        `;
+        activeBox.innerHTML = `<div class="vp-muted" style="text-align:center;">Chưa có gói Vé Tháng nào đang hoạt động.</div>`;
       }
 
       const plansEl = document.getElementById("ui-pass-plans-list");
@@ -530,38 +795,45 @@
               <div class="plan-card__price">${VP.escapeHtml(pl.price_formatted)}</div>
             </div>
             <p class="vp-muted" style="margin:6px 0 12px;">${VP.escapeHtml(pl.description)} (~${VP.escapeHtml(pl.daily_cost_formatted)}/ngày)</p>
-            <button type="button" class="vp-btn vp-btn--primary vp-btn--block vp-btn--sm" data-buy-plan="${pl.id}" data-plan-name="${VP.escapeHtml(pl.name)}" data-plan-price="${VP.escapeHtml(pl.price_formatted)}">
-              ${data.active_pass ? "Gia hạn cộng dồn thêm " + pl.duration_days + " ngày" : "Đăng ký ngay bằng Số dư Ví"}
-            </button>
-          </div>
-        `
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <button type="button" class="vp-btn vp-btn--primary vp-btn--sm" data-buy-plan="${pl.id}" data-plan-name="${VP.escapeHtml(pl.name)}" data-plan-price="${VP.escapeHtml(pl.price_formatted)}">
+                ${data.active_pass ? "Gia hạn bằng Ví" : "Mua bằng Số dư Ví"}
+              </button>
+              <button type="button" class="vp-btn vp-btn--accent vp-btn--sm" data-topup-plan="${pl.id}">
+                Nạp riêng gói này
+              </button>
+            </div>
+          </div>`
         )
         .join("");
 
       plansEl.querySelectorAll("[data-buy-plan]").forEach((btn) => {
         btn.onclick = async () => {
           const planId = Number(btn.dataset.buyPlan);
-          if (!confirm(`Xác nhận thanh toán ${btn.dataset.planPrice} từ Ví VeloPass để đăng ký "${btn.dataset.planName}"?`)) {
-            return;
-          }
+          if (!confirm(`Xác nhận trừ ${btn.dataset.planPrice} từ Ví VeloPass để đăng ký "${btn.dataset.planName}"?`)) return;
           btn.disabled = true;
           try {
             const res = await VP.api("/api/passes/purchase", {
               method: "POST",
               body: { plan_id: planId, auto_renew: false },
             });
-            if (res.next_qr) state.qr = res.next_qr;
+            if (res.next_qr) state.qrMonthly = res.next_qr;
             VP.toast(`Kích hoạt ${btn.dataset.planName} thành công!`, "success");
             await refreshDashboard();
             await loadMyPasses();
           } catch (err) {
             VP.toast(err.message, "danger");
-            if (err.code === "INSUFFICIENT_BALANCE") {
-              switchView("topup");
-            }
           } finally {
             btn.disabled = false;
           }
+        };
+      });
+
+      plansEl.querySelectorAll("[data-topup-plan]").forEach((btn) => {
+        btn.onclick = () => {
+          const planId = Number(btn.dataset.topupPlan);
+          switchView("topup");
+          switchTopupChannel("AUTO", "MONTHLY_PASS", planId);
         };
       });
 
@@ -574,7 +846,7 @@
                 <div>
                   <div class="tx-item__title">${VP.escapeHtml(h.plan_name)}</div>
                   <div class="tx-item__sub">${VP.escapeHtml(h.pass_code)} &bull; Hạn: ${VP.formatDateTime(h.expires_at)}</div>
-                  <div class="tx-item__sub">Đã sử dụng: ${VP.escapeHtml(h.trips_label)}</div>
+                  <div class="tx-item__sub">Đã đi: ${VP.escapeHtml(h.trips_label)}</div>
                 </div>
                 <div class="tx-item__right">
                   <div class="tx-item__amt text-primary">${VP.escapeHtml(h.price_paid_formatted)}</div>
@@ -583,7 +855,7 @@
               </div>`
             )
             .join("")
-        : `<div class="empty-state">Chưa có lịch sử mua Vé Tháng.</div>`;
+        : `<div class="empty-state">Chưa có lịch sử Vé Tháng.</div>`;
     } catch (err) {
       VP.toast(err.message, "danger");
     }
@@ -603,18 +875,18 @@
               (u) => `
             <div class="tx-item">
               <div>
-                <div class="tx-item__title">Quét QR qua cổng &bull; ${VP.escapeHtml(u.transaction_code)}</div>
+                <div class="tx-item__title">${u.payment_method === "MONTHLY_PASS" ? "Vé Tháng (0 VNĐ)" : "Vé Lượt"} &bull; ${VP.escapeHtml(u.transaction_code)}</div>
                 <div class="tx-item__sub">Thời gian: ${VP.formatDateTime(u.created_at)}</div>
-                <div class="tx-item__sub">Số dư: ${VP.escapeHtml(u.balance_before_formatted)} &rarr; <strong>${VP.escapeHtml(u.balance_after_formatted)}</strong></div>
+                <div class="tx-item__sub">Số dư ví: ${VP.escapeHtml(u.balance_before_formatted)} &rarr; <strong>${VP.escapeHtml(u.balance_after_formatted)}</strong></div>
               </div>
               <div class="tx-item__right">
-                <div class="tx-item__amt text-danger">${VP.escapeHtml(u.amount_formatted)}</div>
+                <div class="tx-item__amt ${u.payment_method === "MONTHLY_PASS" ? "text-success" : "text-danger"}">${VP.escapeHtml(u.amount_formatted)}</div>
                 <span class="status-pill status-pill--SUCCESS">${VP.escapeHtml(u.status)}</span>
               </div>
             </div>`
             )
             .join("")
-        : `<div class="empty-state">Chưa có lịch sử sử dụng thẻ.</div>`;
+        : `<div class="empty-state">Chưa có lịch sử quét vé.</div>`;
 
       tEl.innerHTML = data.topups.length
         ? data.topups
@@ -623,7 +895,7 @@
             <div class="tx-item">
               <div>
                 <div class="tx-item__title">${VP.escapeHtml(t.transaction_code)} &bull; ${VP.escapeHtml(t.bank_name)}</div>
-                <div class="tx-item__sub">Nội dung CK: <strong>${VP.escapeHtml(t.transfer_content)}</strong></div>
+                <div class="tx-item__sub">Mã đối chiếu: <strong>${VP.escapeHtml(t.transfer_content)}</strong></div>
                 <div class="tx-item__sub">Tạo lúc: ${VP.formatDateTime(t.created_at)}</div>
               </div>
               <div class="tx-item__right">
@@ -669,7 +941,7 @@
     };
   });
 
-  // --- Notifications Modal ---
+  // --- Notifications & Account ---
   document.getElementById("btn-open-notifications").onclick = () => {
     document.getElementById("modal-notifications").style.display = "flex";
   };
@@ -687,7 +959,6 @@
   document.getElementById("btn-mark-all-read").onclick = markAllRead;
   document.getElementById("btn-mark-read-inline").onclick = markAllRead;
 
-  // --- Account, Password & Support ---
   document.getElementById("form-profile").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
@@ -771,7 +1042,7 @@
   document.getElementById("btn-logout-rail").onclick = doLogout;
   document.getElementById("btn-logout-mobile").onclick = doLogout;
 
-  // --- Real-Time SSE Connection (Instant Scan & Topup Updates!) ---
+  // --- Real-Time SSE ---
   function connectRealtimeSSE() {
     if (!window.EventSource) return;
     if (state.sse) state.sse.close();
@@ -781,51 +1052,55 @@
 
     es.addEventListener("card_scanned", (ev) => {
       const payload = JSON.parse(ev.data);
-      const scanText =
-        payload.payment_method === "MONTHLY_PASS"
-          ? `Qua cổng miễn phí 0 VNĐ bằng Vé Tháng! Số dư ví giữ nguyên ${payload.balance_formatted}.`
-          : `Đã trừ ${VP.formatVND(payload.amount)} qua cổng. Số dư còn ${payload.balance_formatted}.`;
-      VP.toast(scanText, "success", "Quét thẻ thành công!");
-      if (payload.next_qr) {
-        state.qr = payload.next_qr;
+      const isPass = payload.payment_method === "MONTHLY_PASS";
+      VP.toast(
+        isPass
+          ? `Qua cổng miễn phí 0 VNĐ bằng Vé Tháng! Ví giữ nguyên ${payload.balance_formatted}.`
+          : `Đã trừ ${VP.formatVND(payload.amount)} Vé Lượt. Số dư còn ${payload.balance_formatted}.`,
+        "success",
+        "Quét thẻ thành công!"
+      );
+      if (isPass) {
+        state.qrMonthly = payload.next_qr || null;
       } else {
-        state.qr = null;
+        state.qrSingle = payload.next_qr || null;
       }
       refreshDashboard();
-      if (state.activeView === "passes") loadMyPasses();
-    });
-
-    es.addEventListener("pass_updated", (ev) => {
-      const payload = JSON.parse(ev.data);
-      if (payload.next_qr) state.qr = payload.next_qr;
-      refreshDashboard();
-      if (state.activeView === "passes") loadMyPasses();
+      if (state.activeView === "monthly-pass") loadMyPasses();
     });
 
     es.addEventListener("topup_confirmed", (ev) => {
       const payload = JSON.parse(ev.data);
-      VP.toast(
-        `Ví vừa được cộng +${VP.formatVND(payload.amount)}. Số dư mới: ${payload.balance_formatted}!`,
-        "success",
-        "Nạp tiền thành công!"
-      );
+      const msg = payload.activated_pass_code
+        ? `Nạp tiền & kích hoạt Vé Tháng (${payload.activated_pass_code}) thành công!`
+        : `Ví vừa được cộng +${VP.formatVND(payload.amount)}. Số dư mới: ${payload.balance_formatted}!`;
+      VP.toast(msg, "success", "Giao dịch nạp hoàn tất!");
       if (payload.next_qr) {
-        state.qr = payload.next_qr;
+        if (payload.next_qr.ticket_mode === "MONTHLY") state.qrMonthly = payload.next_qr;
+        else state.qrSingle = payload.next_qr;
       }
       if (state.activeTopup && state.activeTopup.id === payload.topup_id) {
         state.activeTopup.status = "SUCCESS";
         showTopupOrder(state.activeTopup);
       }
       refreshDashboard();
+      if (state.activeView === "monthly-pass") loadMyPasses();
+    });
+
+    es.addEventListener("pass_updated", (ev) => {
+      const payload = JSON.parse(ev.data);
+      if (payload.next_qr) state.qrMonthly = payload.next_qr;
+      refreshDashboard();
+      if (state.activeView === "monthly-pass") loadMyPasses();
     });
 
     es.addEventListener("account_status_changed", (ev) => {
       const payload = JSON.parse(ev.data);
       if (payload.user_status === "SUSPENDED") {
-        state.qr = null;
+        state.qrSingle = null;
+        state.qrMonthly = null;
         VP.toast(`Tài khoản đã bị tạm khóa: ${payload.reason}`, "danger", "Thông báo bảo mật");
       } else {
-        if (payload.next_qr) state.qr = payload.next_qr;
         VP.toast("Tài khoản & thẻ điện tử đã được mở khóa trở lại!", "success");
       }
       refreshDashboard();
@@ -852,6 +1127,5 @@
     if (document.visibilityState === "visible") refreshDashboard();
   });
 
-  // Boot User App
   refreshDashboard().then(() => connectRealtimeSSE());
 })();

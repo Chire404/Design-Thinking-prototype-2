@@ -392,6 +392,7 @@ def purchase_monthly_pass(
                 card_version=int(synced_card["card_version"]),
                 ttl_seconds=int(settings["qr_ttl_seconds"]),
                 qr_hmac_secret=qr_hmac_secret,
+                ticket_mode="MONTHLY",
             )
 
         created_pass = row_to_dict(conn.execute("SELECT * FROM user_passes WHERE id = ?", (new_pass_id,)).fetchone())

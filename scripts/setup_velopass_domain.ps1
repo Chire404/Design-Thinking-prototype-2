@@ -33,8 +33,8 @@ if (-not $Hostname) {
     Write-Host "=================================================================" -ForegroundColor Cyan
     Write-Host " KHỞI CHẠY ĐƯỜNG DẪN HTTPS MANG TÊN VELOPASS (CUSTOM SUBDOMAIN) " -ForegroundColor Green
     Write-Host "=================================================================" -ForegroundColor Cyan
-    Write-Host "Đang yêu cầu định danh cố định https://velopass.serveo.net -> http://127.0.0.1:5000 ..."
-    ssh -T -i $TunnelKey -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -R velopass:80:127.0.0.1:5000 serveo.net
+    Write-Host "Đang yêu cầu định danh cố định https://velopass.serveo.net -> http://127.0.0.1:5002 ..."
+    ssh -T -i $TunnelKey -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -R velopass:80:127.0.0.1:5002 serveo.net
     exit 0
 }
 

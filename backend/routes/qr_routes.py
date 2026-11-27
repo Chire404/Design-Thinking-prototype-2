@@ -16,22 +16,28 @@ qr_bp = Blueprint("qr_api", __name__, url_prefix="/api/qr")
 
 @qr_bp.post("/issue")
 @require_auth
-@rate_limit("qr_issue", max_requests=30, window_seconds=60)
+@rate_limit("qr_issue", max_requests=40, window_seconds=60)
 def issue_qr():
+    body = request.get_json(silent=True) or {}
+    mode = body.get("ticket_mode") or request.args.get("ticket_mode")
     qr_bundle = issue_or_refresh_user_qr(
         user_id=int(g.auth["user_id"]),
         qr_hmac_secret=str(current_app.config["QR_HMAC_SECRET"]),
+        ticket_mode=mode,
     )
     return api_success(qr_bundle, "Đã cấp mã QR động mới cho thẻ điện tử.")
 
 
 @qr_bp.post("/refresh")
 @require_auth
-@rate_limit("qr_refresh", max_requests=30, window_seconds=60)
+@rate_limit("qr_refresh", max_requests=40, window_seconds=60)
 def refresh_qr():
+    body = request.get_json(silent=True) or {}
+    mode = body.get("ticket_mode") or request.args.get("ticket_mode")
     qr_bundle = issue_or_refresh_user_qr(
         user_id=int(g.auth["user_id"]),
         qr_hmac_secret=str(current_app.config["QR_HMAC_SECRET"]),
+        ticket_mode=mode,
     )
     return api_success(qr_bundle, "Đã làm mới mã QR động.")
 

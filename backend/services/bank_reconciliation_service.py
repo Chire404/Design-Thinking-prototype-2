@@ -394,9 +394,10 @@ def reconcile_bank_entries(
                 stats["amount_mismatch"] += 1
                 continue
 
-            # 6. Verify order eligibility & auto_reconcile toggle
+            # 6. Verify order eligibility & auto_reconcile toggle (MANUAL cash/counter requests stay manual!)
+            order_channel = (matched_row["topup_channel"] if "topup_channel" in matched_row.keys() else "AUTO") or "AUTO"
             order_status = matched_row["status"]
-            eligible_for_auto = order_status in ("PENDING", "PROCESSING")
+            eligible_for_auto = (order_channel == "AUTO") and (order_status in ("PENDING", "PROCESSING"))
             if order_status == "EXPIRED" and grace_minutes > 0:
                 exp_dt = parse_iso(matched_row["expires_at"])
                 if now_dt <= exp_dt + timedelta(minutes=grace_minutes):

@@ -29,6 +29,6 @@ if ($env:CLOUDFLARE_TUNNEL_TOKEN) {
     Write-Host "[VeloPass] Starting Named Cloudflare HTTPS Tunnel (Custom Domain)..." -ForegroundColor Green
     & $CloudflaredExe tunnel --no-autoupdate run --token $env:CLOUDFLARE_TUNNEL_TOKEN
 } else {
-    Write-Host "[VeloPass] Starting Quick HTTPS Tunnel -> http://127.0.0.1:5000 ..." -ForegroundColor Green
-    & $CloudflaredExe tunnel --no-autoupdate --url http://127.0.0.1:5000
+    Write-Host "[VeloPass] Starting Quick HTTPS Tunnel -> http://127.0.0.1:5002 ..." -ForegroundColor Green
+    & $CloudflaredExe tunnel --no-autoupdate --url http://127.0.0.1:5002
 }

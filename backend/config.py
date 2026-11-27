@@ -41,7 +41,7 @@ class Config:
         self.APP_ENV: str = str(overrides.get("APP_ENV", os.getenv("APP_ENV", "development"))).lower()
         self.APP_NAME: str = str(overrides.get("APP_NAME", os.getenv("APP_NAME", "VeloPass")))
         self.APP_HOST: str = str(overrides.get("APP_HOST", os.getenv("APP_HOST", "127.0.0.1")))
-        self.APP_PORT: int = int(overrides.get("APP_PORT", os.getenv("APP_PORT", "5000")))
+        self.APP_PORT: int = int(overrides.get("APP_PORT", os.getenv("APP_PORT", "5002")))
 
         raw_secret = str(overrides.get("SECRET_KEY", os.getenv("SECRET_KEY", "")))
         raw_qr_secret = str(overrides.get("QR_HMAC_SECRET", os.getenv("QR_HMAC_SECRET", "")))

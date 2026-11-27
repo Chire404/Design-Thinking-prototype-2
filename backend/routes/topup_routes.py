@@ -23,14 +23,24 @@ topup_bp = Blueprint("topup_api", __name__)
 
 @topup_bp.post("/api/topups")
 @require_auth
-@rate_limit("create_topup", max_requests=15, window_seconds=60)
+@rate_limit("create_topup", max_requests=20, window_seconds=60)
 def create_topup():
     body = request.get_json(silent=True) or {}
     order = create_topup_order(
         user_id=int(g.auth["user_id"]),
         raw_amount=body.get("amount"),
+        topup_channel=body.get("topup_channel", "AUTO"),
+        payment_method_detail=body.get("payment_method_detail", "BANK_TRANSFER"),
+        payer_note=body.get("note", ""),
+        purpose=body.get("purpose", "WALLET"),
+        target_plan_id=body.get("target_plan_id"),
     )
-    return api_success(order, "Đã tạo đơn nạp tiền và mã QR chuyển khoản.", 201)
+    msg = (
+        "Đã gửi Request nạp tiền thủ công tới Quản trị viên."
+        if order["topup_channel"] == "MANUAL"
+        else "Đã tạo đơn nạp tiền tự động và mã VietQR chuyển khoản."
+    )
+    return api_success(order, msg, 201)
 
 
 @topup_bp.get("/api/topups")

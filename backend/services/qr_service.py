@@ -33,28 +33,31 @@ def _issue_qr_token_in_tx(
     card_version: int,
     ttl_seconds: int,
     qr_hmac_secret: str,
+    ticket_mode: str = "SINGLE",
 ) -> dict:
-    """Revoke any existing ACTIVE QR token for this card and issue one fresh single-use token."""
+    """Revoke any existing ACTIVE QR token for (card_id, ticket_mode) and issue one fresh single-use token."""
+    mode = "MONTHLY" if str(ticket_mode or "").upper() == "MONTHLY" else "SINGLE"
     now_dt = utc_now()
     now_iso = utc_now_iso()
     expires_dt = now_dt + timedelta(seconds=ttl_seconds)
     expires_iso = expires_dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
     conn.execute(
-        "UPDATE qr_tokens SET status = 'REVOKED' WHERE card_id = ? AND status = 'ACTIVE'",
-        (card_id,),
+        "UPDATE qr_tokens SET status = 'REVOKED' WHERE card_id = ? AND ticket_mode = ? AND status = 'ACTIVE'",
+        (card_id, mode),
     )
 
     raw_token, token_hash = create_signed_qr_token(qr_hmac_secret)
     cur = conn.execute(
         """
-        INSERT INTO qr_tokens (user_id, card_id, card_version, token_hash, expires_at, status, created_at)
-        VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?)
+        INSERT INTO qr_tokens (user_id, card_id, card_version, ticket_mode, token_hash, expires_at, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?)
         """,
-        (user_id, card_id, card_version, token_hash, expires_iso, now_iso),
+        (user_id, card_id, card_version, mode, token_hash, expires_iso, now_iso),
     )
     return {
         "token_id": int(cur.lastrowid),
+        "ticket_mode": mode,
         "qr_token": raw_token,
         "qr_svg_data_uri": generate_qr_svg_data_uri(raw_token, box_size=9, border=3),
         "expires_at": expires_iso,
@@ -62,8 +65,14 @@ def _issue_qr_token_in_tx(
     }
 
 
-def issue_or_refresh_user_qr(user_id: int, qr_hmac_secret: str) -> dict:
-    """Check User, Monthly Pass & Wallet eligibility and issue a single-use Dynamic QR code."""
+def issue_or_refresh_user_qr(
+    user_id: int,
+    qr_hmac_secret: str,
+    ticket_mode: str | None = None,
+) -> dict:
+    """Issue a single-use Dynamic QR code for either SINGLE (Vé lượt) or MONTHLY (Vé tháng) tab."""
+    requested_mode = str(ticket_mode).upper().strip() if ticket_mode else ""
+
     with atomic_transaction() as conn:
         settings = get_system_settings_in_tx(conn)
         fare = int(settings["fare_amount"])
@@ -100,19 +109,51 @@ def issue_or_refresh_user_qr(user_id: int, qr_hmac_secret: str) -> dict:
                 {"card_status": card["status"], "balance": balance, "balance_formatted": format_vnd(balance)},
             )
 
-        if active_pass is None and balance < fare:
-            raise AppError(
-                "INSUFFICIENT_BALANCE",
-                f"Số dư hiện tại ({format_vnd(balance)}) dưới mức tối thiểu {format_vnd(fare)} và chưa có Vé Tháng. Vui lòng nạp thêm tiền hoặc mua Vé Tháng.",
-                400,
-                {
-                    "card_status": "INSUFFICIENT_BALANCE",
-                    "balance": balance,
-                    "balance_formatted": format_vnd(balance),
-                    "required_fare": fare,
-                    "required_fare_formatted": format_vnd(fare),
-                },
-            )
+        # Determine effective ticket_mode
+        if requested_mode == "MONTHLY":
+            if active_pass is None:
+                raise AppError(
+                    "NO_ACTIVE_PASS",
+                    "Bạn chưa có Vé Tháng đang hiệu lực. Hãy nạp hoặc đăng ký Vé Tháng để mở mã QR Vé Tháng!",
+                    400,
+                    {"ticket_mode": "MONTHLY", "has_active_pass": False, "balance": balance},
+                )
+            effective_mode = "MONTHLY"
+        elif requested_mode == "SINGLE":
+            if balance < fare:
+                raise AppError(
+                    "INSUFFICIENT_BALANCE",
+                    f"Số dư ví vé lượt ({format_vnd(balance)}) dưới mức tối thiểu {format_vnd(fare)}. Vui lòng nạp thêm tiền!",
+                    400,
+                    {
+                        "ticket_mode": "SINGLE",
+                        "card_status": card["status"],
+                        "balance": balance,
+                        "balance_formatted": format_vnd(balance),
+                        "required_fare": fare,
+                        "required_fare_formatted": format_vnd(fare),
+                    },
+                )
+            effective_mode = "SINGLE"
+        else:
+            # Smart default when ticket_mode is omitted
+            if active_pass is not None:
+                effective_mode = "MONTHLY"
+            elif balance >= fare:
+                effective_mode = "SINGLE"
+            else:
+                raise AppError(
+                    "INSUFFICIENT_BALANCE",
+                    f"Số dư hiện tại ({format_vnd(balance)}) dưới mức tối thiểu {format_vnd(fare)} và chưa có Vé Tháng.",
+                    400,
+                    {
+                        "card_status": "INSUFFICIENT_BALANCE",
+                        "balance": balance,
+                        "balance_formatted": format_vnd(balance),
+                        "required_fare": fare,
+                        "required_fare_formatted": format_vnd(fare),
+                    },
+                )
 
         issued = _issue_qr_token_in_tx(
             conn=conn,
@@ -121,18 +162,21 @@ def issue_or_refresh_user_qr(user_id: int, qr_hmac_secret: str) -> dict:
             card_version=int(card["card_version"]),
             ttl_seconds=ttl,
             qr_hmac_secret=qr_hmac_secret,
+            ticket_mode=effective_mode,
         )
 
+    is_monthly_qr = effective_mode == "MONTHLY"
     return {
         **issued,
         "card_number": card["card_number"],
         "card_status": "ACTIVE",
+        "ticket_mode": effective_mode,
         "has_active_pass": active_pass is not None,
         "active_pass": active_pass,
         "balance": balance,
         "balance_formatted": format_vnd(balance),
-        "fare_amount": 0 if active_pass else fare,
-        "fare_formatted": "0 VNĐ (Vé Tháng)" if active_pass else format_vnd(fare),
+        "fare_amount": 0 if is_monthly_qr else fare,
+        "fare_formatted": "0 VNĐ (Vé Tháng)" if is_monthly_qr else format_vnd(fare),
         "qr_active": True,
     }
 
@@ -333,6 +377,7 @@ def scan_and_deduct_qr(
         if rejected is None:
             card_number = card["card_number"]
             balance_before = int(wallet["balance"])
+            qr_ticket_mode = qr_row["ticket_mode"] if "ticket_mode" in qr_row.keys() else "SINGLE"
 
             if qr_row["status"] == "USED" or qr_row["used_at"] is not None:
                 _record_failed_scan(
@@ -403,12 +448,22 @@ def scan_and_deduct_qr(
                     idempotency_key=idem_key,
                 )
                 rejected = AppError("INVALID_QR", "Thẻ chưa sẵn sàng sử dụng hoặc phiên bản mã QR không khớp.", 400)
-            elif active_pass is None and balance_before < fare:
+            elif qr_ticket_mode == "MONTHLY" and active_pass is None:
                 conn.execute("UPDATE qr_tokens SET status = 'REVOKED' WHERE id = ?", (qr_row["id"],))
-                conn.execute(
-                    "UPDATE virtual_cards SET status = 'INSUFFICIENT_BALANCE', updated_at = ? WHERE id = ?",
-                    (now_iso, card["id"]),
+                _record_failed_scan(
+                    conn,
+                    admin_id=admin_id,
+                    user_id=user_id,
+                    card_number=card_number,
+                    balance_before=balance_before,
+                    error_code="EXPIRED_QR",
+                    message="Mã QR Vé Tháng đã hết hạn gói hoặc không còn hiệu lực.",
+                    idempotency_key=idem_key,
                 )
+                rejected = AppError("EXPIRED_QR", "Vé Tháng của hành khách đã hết hạn hiệu lực.", 400)
+            elif qr_ticket_mode == "SINGLE" and balance_before < fare:
+                conn.execute("UPDATE qr_tokens SET status = 'REVOKED' WHERE id = ?", (qr_row["id"],))
+                sync_card_status_in_tx(conn, user_id)
                 _record_failed_scan(
                     conn,
                     admin_id=admin_id,
@@ -416,17 +471,16 @@ def scan_and_deduct_qr(
                     card_number=card_number,
                     balance_before=balance_before,
                     error_code="INSUFFICIENT_BALANCE",
-                    message=f"Số dư không đủ ({format_vnd(balance_before)} < {format_vnd(fare)}) và không có Vé Tháng.",
+                    message=f"Số dư ví vé lượt không đủ ({format_vnd(balance_before)} < {format_vnd(fare)}).",
                     idempotency_key=idem_key,
                 )
                 rejected = AppError(
                     "INSUFFICIENT_BALANCE",
-                    f"Số dư không đủ để qua cổng ({format_vnd(balance_before)} / cần {format_vnd(fare)}).",
+                    f"Số dư ví vé lượt không đủ để qua cổng ({format_vnd(balance_before)} / cần {format_vnd(fare)}).",
                     400,
                 )
 
         if rejected is None:
-            # Atomic conditional mark QR token USED (strictly single-use whether Monthly Pass or Wallet!)
             claim_cur = conn.execute(
                 """
                 UPDATE qr_tokens
@@ -440,8 +494,7 @@ def scan_and_deduct_qr(
 
             usage_tx_code = generate_tx_code("USE")
 
-            if active_pass is not None:
-                # PRIORITY 1: VALID MONTHLY PASS -> 0 VND DEDUCTION!
+            if qr_ticket_mode == "MONTHLY" and active_pass is not None:
                 payment_method = "MONTHLY_PASS"
                 effective_amount = 0
                 balance_after = balance_before
@@ -457,7 +510,6 @@ def scan_and_deduct_qr(
                         (now_iso, pass_id),
                     )
             else:
-                # PRIORITY 2: STANDARD WALLET PAY-PER-RIDE (4.000 VND)
                 payment_method = "WALLET"
                 effective_amount = fare
                 pass_id = None
@@ -480,10 +532,10 @@ def scan_and_deduct_qr(
                 conn.execute(
                     """
                     INSERT INTO wallet_transactions (
-                        transaction_code, user_id, wallet_id, transaction_type,
+                        transaction_code, user_id, wallet_id, transaction_type, approval_mode,
                         amount, balance_before, balance_after, reference_type, reference_id,
                         admin_id, description, created_at
-                    ) VALUES (?, ?, ?, 'USAGE', ?, ?, ?, 'USAGE_TRANSACTION', ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, 'USAGE', 'AUTO', ?, ?, ?, 'USAGE_TRANSACTION', ?, ?, ?, ?)
                     """,
                     (
                         wallet_tx_code,
@@ -494,7 +546,7 @@ def scan_and_deduct_qr(
                         balance_after,
                         usage_tx_code,
                         admin_id,
-                        f"Quét thẻ {card_number} qua cổng kiểm soát (-{format_vnd(fare)})",
+                        f"Quét Vé Lượt thẻ {card_number} qua cổng kiểm soát (-{format_vnd(fare)})",
                         now_iso,
                     ),
                 )
@@ -524,21 +576,34 @@ def scan_and_deduct_qr(
             )
             usage_id = int(usage_cur.lastrowid)
 
-            # Re-check post-scan eligibility (still has active pass OR balance_after >= fare)
             remaining_pass = get_active_pass_in_tx(conn, user_id)
             next_qr_bundle = None
-            if remaining_pass is not None or balance_after >= fare:
-                new_card_status = "ACTIVE"
-                next_qr_bundle = _issue_qr_token_in_tx(
-                    conn=conn,
-                    user_id=user_id,
-                    card_id=int(card["id"]),
-                    card_version=int(card["card_version"]),
-                    ttl_seconds=ttl,
-                    qr_hmac_secret=qr_hmac_secret,
-                )
+            if qr_ticket_mode == "MONTHLY":
+                if remaining_pass is not None:
+                    next_qr_bundle = _issue_qr_token_in_tx(
+                        conn=conn,
+                        user_id=user_id,
+                        card_id=int(card["id"]),
+                        card_version=int(card["card_version"]),
+                        ttl_seconds=ttl,
+                        qr_hmac_secret=qr_hmac_secret,
+                        ticket_mode="MONTHLY",
+                    )
             else:
-                new_card_status = "INSUFFICIENT_BALANCE"
+                if balance_after >= fare:
+                    next_qr_bundle = _issue_qr_token_in_tx(
+                        conn=conn,
+                        user_id=user_id,
+                        card_id=int(card["id"]),
+                        card_version=int(card["card_version"]),
+                        ttl_seconds=ttl,
+                        qr_hmac_secret=qr_hmac_secret,
+                        ticket_mode="SINGLE",
+                    )
+
+            new_card_status = compute_card_status(
+                "ACTIVE", balance_after, fare, has_active_pass=(remaining_pass is not None)
+            )
 
             conn.execute(
                 "UPDATE virtual_cards SET status = ?, updated_at = ? WHERE id = ?",

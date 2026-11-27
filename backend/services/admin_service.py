@@ -496,10 +496,10 @@ def admin_adjust_wallet_balance(
         conn.execute(
             """
             INSERT INTO wallet_transactions (
-                transaction_code, user_id, wallet_id, transaction_type,
+                transaction_code, user_id, wallet_id, transaction_type, approval_mode,
                 amount, balance_before, balance_after, reference_type, reference_id,
                 admin_id, description, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'ADMIN_ADJUSTMENT', ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, 'MANUAL', ?, ?, ?, 'ADMIN_ADJUSTMENT', ?, ?, ?, ?)
             """,
             (
                 tx_code,
@@ -511,7 +511,7 @@ def admin_adjust_wallet_balance(
                 balance_after,
                 tx_code,
                 admin_id,
-                f"Điều chỉnh số dư bởi Admin: {reason}",
+                f"Điều chỉnh số dư [THỦ CÔNG] bởi Admin: {reason}",
                 now_iso,
             ),
         )
@@ -584,13 +584,14 @@ def admin_adjust_wallet_balance(
 
 def list_admin_transactions(
     tx_type: str = "",
+    approval_mode: str = "",
     user_query: str = "",
     date_from: str = "",
     date_to: str = "",
     min_amount: str = "",
     max_amount: str = "",
 ) -> list[dict]:
-    """Filterable Wallet Ledger for Section 10.3."""
+    """Filterable Wallet Ledger with explicit TỰ ĐỘNG / THỦ CÔNG approval badges."""
     sql = """
         SELECT wt.*, u.username, u.full_name AS user_name, a.full_name AS admin_name
         FROM wallet_transactions wt
@@ -603,6 +604,9 @@ def list_admin_transactions(
     if tx_type:
         sql += " AND wt.transaction_type = ?"
         params.append(tx_type.upper())
+    if approval_mode and approval_mode.upper() in ("AUTO", "MANUAL"):
+        sql += " AND wt.approval_mode = ?"
+        params.append(approval_mode.upper())
     if user_query:
         like = f"%{user_query.strip()}%"
         sql += " AND (u.username LIKE ? OR u.full_name LIKE ? OR u.email LIKE ? OR wt.transaction_code LIKE ?)"
@@ -631,24 +635,42 @@ def list_admin_transactions(
         r["amount_formatted"] = format_vnd(r["amount"])
         r["balance_before_formatted"] = format_vnd(r["balance_before"])
         r["balance_after_formatted"] = format_vnd(r["balance_after"])
+        mode = (r.get("approval_mode") or ("MANUAL" if r.get("admin_id") and r["transaction_type"] in ("TOPUP", "ADJUSTMENT_CREDIT", "ADJUSTMENT_DEBIT") else "AUTO")).upper()
+        r["approval_mode"] = mode
+        r["approval_badge_text"] = "THỦ CÔNG" if mode == "MANUAL" else "TỰ ĐỘNG"
         r["status"] = "SUCCESS"
     return rows
 
 
-def list_admin_topups(status_filter: str = "", user_query: str = "") -> list[dict]:
+def list_admin_topups(
+    status_filter: str = "",
+    user_query: str = "",
+    channel_filter: str = "",
+    approval_mode_filter: str = "",
+) -> list[dict]:
+    from backend.services.topup_service import _enrich_topup_row
+
     with atomic_transaction() as conn:
         expire_stale_topups_in_tx(conn)
         sql = """
-            SELECT tt.*, u.username, u.full_name AS user_name, u.email, a.full_name AS admin_name
+            SELECT tt.*, u.username, u.full_name AS user_name, u.email, a.full_name AS admin_name,
+                   pp.name AS target_plan_name
             FROM topup_transactions tt
             JOIN users u ON u.id = tt.user_id
             LEFT JOIN users a ON a.id = tt.confirmed_by_admin_id
+            LEFT JOIN pass_plans pp ON pp.id = tt.target_plan_id
             WHERE 1 = 1
         """
         params: list = []
         if status_filter:
             sql += " AND tt.status = ?"
             params.append(status_filter.upper())
+        if channel_filter and channel_filter.upper() in ("AUTO", "MANUAL"):
+            sql += " AND tt.topup_channel = ?"
+            params.append(channel_filter.upper())
+        if approval_mode_filter and approval_mode_filter.upper() in ("AUTO", "MANUAL"):
+            sql += " AND tt.approval_mode = ?"
+            params.append(approval_mode_filter.upper())
         if user_query:
             like = f"%{user_query.strip()}%"
             sql += " AND (u.username LIKE ? OR u.full_name LIKE ? OR tt.transaction_code LIKE ? OR tt.transfer_content LIKE ?)"
@@ -656,9 +678,7 @@ def list_admin_topups(status_filter: str = "", user_query: str = "") -> list[dic
         sql += " ORDER BY tt.id DESC LIMIT 200"
         rows = rows_to_dicts(conn.execute(sql, params).fetchall())
 
-    for r in rows:
-        r["amount_formatted"] = format_vnd(r["amount"])
-    return rows
+    return [_enrich_topup_row(r) for r in rows]
 
 
 def get_bank_settings() -> dict:

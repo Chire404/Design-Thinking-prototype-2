@@ -6,11 +6,11 @@
   <meta name="theme-color" content="#0B192C" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>{{ app_name }} — Thẻ Điện Tử Cá Nhân</title>
+  <title>{{ app_name }} — Thẻ Vé Lượt, Vé Tháng &amp; Ví Điện Tử</title>
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg" />
   <link rel="apple-touch-icon" href="/static/icons/icon-192.svg" />
-  <link rel="stylesheet" href="/static/css/user.css" />
+  <link rel="stylesheet" href="/static/css/user.css?v=2.5" />
 </head>
 <body>
   <script>
@@ -23,8 +23,8 @@
       <div class="rail-brand">
         <img src="/static/icons/logo.svg" alt="VeloPass" class="rail-brand__logo" />
         <div>
-          <div class="rail-brand__title">{{ app_name }}</div>
-          <div class="rail-brand__sub">Transit Pass &amp; Wallet</div>
+          <div class="rail-brand__title">{{ app_name }} 2.0</div>
+          <div class="rail-brand__sub">Vé Lượt &bull; Vé Tháng &bull; Ví QR</div>
         </div>
       </div>
 
@@ -32,17 +32,17 @@
         <button class="nav-item active" data-nav="home">
           <span class="nav-icon">&#8962;</span><span>Trang chủ</span>
         </button>
-        <button class="nav-item" data-nav="card">
-          <span class="nav-icon">&#9638;</span><span>Thẻ của tôi</span>
+        <button class="nav-item" data-nav="single-ticket">
+          <span class="nav-icon">&#9638;</span><span>Vé Lượt (4.000đ)</span>
         </button>
-        <button class="nav-item" data-nav="passes">
-          <span class="nav-icon">&#127915;</span><span>Vé Tháng (Pass)</span>
+        <button class="nav-item" data-nav="monthly-pass">
+          <span class="nav-icon">&#127915;</span><span>Vé Tháng (Monthly Pass)</span>
         </button>
         <button class="nav-item" data-nav="topup">
-          <span class="nav-icon">&#43;</span><span>Nạp tiền</span>
+          <span class="nav-icon">&#43;</span><span>Nạp tiền (Tự động / Thủ công)</span>
         </button>
         <button class="nav-item" data-nav="history">
-          <span class="nav-icon">&#8635;</span><span>Lịch sử</span>
+          <span class="nav-icon">&#8635;</span><span>Lịch sử giao dịch</span>
         </button>
         <button class="nav-item" data-nav="account">
           <span class="nav-icon">&#9787;</span><span>Tài khoản</span>
@@ -83,7 +83,7 @@
       </header>
 
       <!-- ============================================================ -->
-      <!-- VIEW 1: TRANG CHỦ (HOME)                                     -->
+      <!-- VIEW 1: TRANG CHỦ (HOME — CARD, PASS TOPUP & DUAL QR TABS)   -->
       <!-- ============================================================ -->
       <section class="app-view active" id="view-home">
         <div class="home-grid">
@@ -96,7 +96,7 @@
                   <img src="/static/icons/logo.svg" alt="" class="transit-card__emblem" />
                   <div>
                     <div class="transit-card__sys">{{ app_name }} E-CARD</div>
-                    <div class="transit-card__type">Thẻ Vé Giao Thông Điện Tử</div>
+                    <div class="transit-card__type">Thẻ Vé Lượt &amp; Vé Tháng Điện Tử</div>
                   </div>
                 </div>
                 <span class="card-status-badge" id="ui-card-status-badge">ĐANG TẢI</span>
@@ -104,11 +104,11 @@
 
               <div class="transit-card__balance-block">
                 <div id="ui-card-pass-ribbon" class="pass-active-ribbon" style="display:none;">
-                  &#127915; VÉ THÁNG ĐANG HIỆU LỰC &bull; QUA CỔNG 0 VNĐ
+                  &#127915; VÉ THÁNG ĐANG HIỆU LỰC
                 </div>
-                <div class="transit-card__label">SỐ DƯ VÍ KHẢ DỤNG</div>
+                <div class="transit-card__label">SỐ DƯ VÍ VÉ LƯỢT</div>
                 <div class="transit-card__balance" id="ui-card-balance">0 VNĐ</div>
-                <div class="transit-card__trips" id="ui-card-trips">Giá vé tiêu chuẩn: 4.000 VNĐ / lượt</div>
+                <div class="transit-card__trips" id="ui-card-trips">Vé lượt tiêu chuẩn: 4.000 VNĐ / lượt</div>
               </div>
 
               <div class="transit-card__meta">
@@ -127,19 +127,19 @@
               </div>
             </div>
 
-            <!-- QUICK WALLET ACTION BAR (4 ITEMS INCLUDING MONTHLY PASS) -->
+            <!-- QUICK ACTION BAR (SEPARATED SINGLE TICKET & MONTHLY PASS) -->
             <div class="quick-actions-card quick-actions-card--4">
-              <button class="qa-btn qa-btn--primary" data-goto="card">
+              <button class="qa-btn qa-btn--primary" data-goto="single-ticket">
                 <span class="qa-btn__icon">&#9638;</span>
-                <span>Trình QR</span>
+                <span>Vé Lượt</span>
               </button>
-              <button class="qa-btn qa-btn--gold" data-goto="passes">
+              <button class="qa-btn qa-btn--gold" data-goto="monthly-pass">
                 <span class="qa-btn__icon">&#127915;</span>
                 <span>Vé Tháng</span>
               </button>
               <button class="qa-btn qa-btn--accent" data-goto="topup">
                 <span class="qa-btn__icon">&#43;</span>
-                <span>Nạp Tiền</span>
+                <span>Nạp Ví</span>
               </button>
               <button class="qa-btn" data-goto="history">
                 <span class="qa-btn__icon">&#8635;</span>
@@ -147,12 +147,50 @@
               </button>
             </div>
 
-            <!-- INLINE QR PREVIEW DOCK ON HOME -->
-            <div class="surface-card qr-home-dock">
+            <!-- NEW REQUIREMENT: DEDICATED MONTHLY PASS TOP-UP MODULE RIGHT ON HOME PAGE -->
+            <div class="surface-card home-pass-topup-card">
               <div class="section-head">
                 <div>
-                  <h2 class="section-title">Mã QR Động Qua Cổng</h2>
-                  <p class="section-sub">Tự động trừ 4.000 VNĐ &amp; xoay mã mới sau mỗi lượt quét</p>
+                  <span class="pass-chip pass-chip--gold">NẠP VÉ THÁNG NHANH</span>
+                  <h2 class="section-title" style="margin-top:4px;">Top-up &amp; Gia Hạn Vé Tháng</h2>
+                  <p class="section-sub" id="home-pass-summary-text">Đi không giới hạn lượt quét cổng 0 VNĐ suốt 30 ngày</p>
+                </div>
+                <button type="button" class="vp-link-btn" data-goto="monthly-pass">Mở tab Vé Tháng &rarr;</button>
+              </div>
+
+              <div class="vp-field" style="margin-bottom:10px;">
+                <label for="home-pass-plan-select">Chọn gói Vé Tháng muốn nạp / kích hoạt</label>
+                <select id="home-pass-plan-select"></select>
+              </div>
+
+              <div class="home-pass-btn-group">
+                <button type="button" class="vp-btn vp-btn--accent vp-btn--sm" id="btn-home-pass-auto-topup">
+                  &#9889; Nạp Tự Động (Bank QR)
+                </button>
+                <button type="button" class="vp-btn vp-btn--outline vp-btn--sm" id="btn-home-pass-manual-topup">
+                  &#9997; Request Nạp Thủ Công
+                </button>
+                <button type="button" class="vp-btn vp-btn--primary vp-btn--sm" id="btn-home-pass-wallet-buy">
+                  &#128179; Trừ Số Dư Ví Hiện Có
+                </button>
+              </div>
+            </div>
+
+            <!-- HOME QR PREVIEW WITH EXPLICIT 2-TAB SWITCH (VÉ LƯỢT vs VÉ THÁNG) -->
+            <div class="surface-card qr-home-dock">
+              <div class="ticket-mode-tabs" role="tablist">
+                <button type="button" class="tmode-tab active" data-home-qrmode="SINGLE">
+                  &#9638; QR Vé Lượt (4.000đ/lượt)
+                </button>
+                <button type="button" class="tmode-tab" data-home-qrmode="MONTHLY">
+                  &#127915; QR Vé Tháng (0đ/lượt)
+                </button>
+              </div>
+
+              <div class="section-head" style="margin-top:12px;">
+                <div>
+                  <h2 class="section-title" id="home-qr-mode-heading">Mã QR Vé Lượt Qua Cổng</h2>
+                  <p class="section-sub" id="home-qr-mode-sub">Trừ 4.000 VNĐ/lượt từ Ví số dư &amp; tự xoay mã mới</p>
                 </div>
                 <button class="vp-btn vp-btn--sm vp-btn--outline" id="btn-fullscreen-qr">Phóng to</button>
               </div>
@@ -171,8 +209,8 @@
               <div id="home-qr-locked-box" class="qr-locked-state">
                 <div class="qr-locked-icon">&#128274;</div>
                 <h3 id="home-qr-locked-title">Mã QR Đang Tạm Khóa</h3>
-                <p id="home-qr-locked-desc">Số dư tối thiểu cần đạt 4.000 VNĐ để kích hoạt mã QR qua cổng.</p>
-                <button type="button" class="vp-btn vp-btn--primary" data-goto="topup">Nạp tiền kích hoạt ngay</button>
+                <p id="home-qr-locked-desc">Số dư tối thiểu cần đạt 4.000 VNĐ để kích hoạt mã QR Vé Lượt.</p>
+                <button type="button" class="vp-btn vp-btn--primary" id="btn-home-locked-cta">Nạp tiền kích hoạt ngay</button>
               </div>
             </div>
           </div>
@@ -187,12 +225,12 @@
                   <strong class="w-stat__val text-success" id="ui-wallet-total-topup">0 VNĐ</strong>
                 </div>
                 <div class="w-stat">
-                  <span class="w-stat__label">Tổng đã đi</span>
+                  <span class="w-stat__label">Tổng đã chi tiêu</span>
                   <strong class="w-stat__val text-primary" id="ui-wallet-total-spent">0 VNĐ</strong>
                 </div>
               </div>
               <div id="ui-low-balance-banner" class="vp-alert vp-alert--warning" style="display:none;margin-top:12px;margin-bottom:0;">
-                Số dư ví đang dưới ngưỡng an toàn (20.000 VNĐ). Hãy nạp thêm để không gián đoạn chuyến đi!
+                Số dư ví vé lượt dưới ngưỡng an toàn (20.000 VNĐ). Hãy nạp thêm hoặc đăng ký Vé Tháng!
               </div>
             </div>
 
@@ -208,8 +246,8 @@
             <!-- RECENT TOPUPS -->
             <div class="surface-card">
               <div class="section-head">
-                <h2 class="section-title">Giao Dịch Nạp Tiền Gần Đây</h2>
-                <button class="vp-link-btn" data-goto="topup">Nạp thêm &rarr;</button>
+                <h2 class="section-title">Yêu Cầu Nạp Tiền Gần Đây</h2>
+                <button class="vp-link-btn" data-goto="topup">Tạo lệnh nạp &rarr;</button>
               </div>
               <div id="ui-home-recent-topups" class="tx-compact-list"></div>
             </div>
@@ -227,100 +265,127 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 2: THẺ CỦA TÔI (FULLVIRTUAL CARD & DYNAMIC QR PASS)     -->
+      <!-- VIEW 2: TAB VÉ LƯỢT RIÊNG BIỆT (SINGLE-RIDE TICKET TAB)      -->
       <!-- ============================================================ -->
-      <section class="app-view" id="view-card">
+      <section class="app-view" id="view-single-ticket">
         <div class="card-pass-wrapper">
+          <div class="ticket-mode-tabs" style="margin-bottom:14px;">
+            <button type="button" class="tmode-tab active" data-goto="single-ticket">&#9638; Tab Vé Lượt (4.000đ)</button>
+            <button type="button" class="tmode-tab" data-goto="monthly-pass">&#127915; Tab Vé Tháng (Pass)</button>
+          </div>
+
           <div class="surface-card pass-ticket">
             <div class="pass-ticket__header">
               <div>
-                <span class="pass-chip">DYNAMIC SINGLE-USE QR</span>
-                <h2 class="section-title" style="margin-top:6px;">Thẻ Qua Cổng Kiểm Soát</h2>
+                <span class="pass-chip">SINGLE-RIDE TICKET &bull; TRỪ VÍ THEO LƯỢT</span>
+                <h2 class="section-title" style="margin-top:6px;">Thẻ QR Vé Lượt Qua Cổng</h2>
               </div>
-              <span class="card-status-badge" id="pass-status-badge">ACTIVE</span>
+              <span class="card-status-badge" id="single-status-badge">INSUFFICIENT</span>
             </div>
 
-            <div class="pass-qr-container" id="pass-qr-active" style="display:none;">
+            <div class="pass-qr-container" id="single-qr-active" style="display:none;">
               <div class="qr-frame qr-frame--lg">
-                <img id="pass-qr-img" src="" alt="Mã QR Thẻ Điện Tử" class="qr-img qr-img--lg" />
+                <img id="single-qr-img" src="" alt="Mã QR Vé Lượt" class="qr-img qr-img--lg" />
               </div>
-              <div class="qr-timer-bar"><div id="pass-qr-progress" class="qr-timer-fill"></div></div>
+              <div class="qr-timer-bar"><div id="single-qr-progress" class="qr-timer-fill"></div></div>
               <div class="pass-qr-caption">
-                <span id="pass-qr-countdown">Tự động đổi mã sau -- giây</span>
-                <button type="button" class="vp-btn vp-btn--sm vp-btn--outline" id="btn-pass-refresh">
+                <span id="single-qr-countdown">Tự động đổi mã sau -- giây</span>
+                <button type="button" class="vp-btn vp-btn--sm vp-btn--outline" id="btn-single-refresh">
                   &#8635; Cấp mã mới
                 </button>
               </div>
             </div>
 
-            <div class="qr-locked-state" id="pass-qr-locked" style="display:none;">
+            <div class="qr-locked-state" id="single-qr-locked" style="display:none;">
               <div class="qr-locked-icon">&#9888;</div>
-              <h3 id="pass-locked-title">Không Thể Sử Dụng Mã QR</h3>
-              <p id="pass-locked-desc">Số dư hiện tại dưới 4.000 VNĐ.</p>
-              <button type="button" class="vp-btn vp-btn--primary" data-goto="topup">Nạp thêm tiền vào ví</button>
+              <h3 id="single-locked-title">Chưa Đủ Số Dư Cho Vé Lượt</h3>
+              <p id="single-locked-desc">Số dư ví cần đạt tối thiểu 4.000 VNĐ để mở mã QR Vé Lượt.</p>
+              <button type="button" class="vp-btn vp-btn--primary" data-goto="topup">Nạp tiền vào Ví Vé Lượt</button>
             </div>
 
             <div class="pass-divider"></div>
 
             <div class="pass-details-grid">
               <div>
-                <span class="meta-label">Mã thẻ</span>
-                <strong class="meta-mono" id="pass-card-number">—</strong>
+                <span class="meta-label">Mã thẻ điện tử</span>
+                <strong class="meta-mono" id="single-card-number">—</strong>
               </div>
               <div>
-                <span class="meta-label">Số dư hiện tại</span>
-                <strong class="text-primary" id="pass-balance">0 VNĐ</strong>
+                <span class="meta-label">Số dư Ví Vé Lượt</span>
+                <strong class="text-primary" id="single-balance">0 VNĐ</strong>
               </div>
               <div>
-                <span class="meta-label">Giá mỗi lượt quét</span>
-                <strong id="pass-fare">4.000 VNĐ</strong>
+                <span class="meta-label">Đơn giá Vé Lượt</span>
+                <strong id="single-fare">4.000 VNĐ / lượt</strong>
               </div>
               <div>
-                <span class="meta-label">Chủ thẻ</span>
-                <strong id="pass-holder">—</strong>
+                <span class="meta-label">Số lượt khả dụng</span>
+                <strong id="single-remaining-trips">0 lượt</strong>
               </div>
             </div>
 
             <div class="pass-security-note">
-              Mã QR chỉ chứa token bảo mật dùng một lần, không lưu thông tin cá nhân hay số dư trực tiếp. Nếu bạn có <strong>Vé Tháng hiệu lực</strong>, hệ thống tự động ưu tiên quét 0 VNĐ!
+              Đây là <strong>mã QR dành riêng cho Vé Lượt</strong>. Mỗi lần cổng Admin quét thành công sẽ trừ đúng <strong>4.000 VNĐ</strong> từ Ví số dư và xoay sang mã QR mới.
             </div>
-            <button type="button" class="vp-btn vp-btn--accent vp-btn--block" data-goto="passes" style="margin-top:12px;">
-              &#127915; Quản lý / Đăng ký Gói Vé Tháng (Monthly Pass)
-            </button>
           </div>
         </div>
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 2B: VÉ THÁNG ĐIỆN TỬ (MONTHLY PASS SUBSCRIPTION)        -->
+      <!-- VIEW 3: TAB VÉ THÁNG RIÊNG BIỆT (MONTHLY PASS TAB)           -->
       <!-- ============================================================ -->
-      <section class="app-view" id="view-passes">
+      <section class="app-view" id="view-monthly-pass">
+        <div class="ticket-mode-tabs" style="max-width:480px;margin:0 auto 14px;">
+          <button type="button" class="tmode-tab" data-goto="single-ticket">&#9638; Tab Vé Lượt (4.000đ)</button>
+          <button type="button" class="tmode-tab active" data-goto="monthly-pass">&#127915; Tab Vé Tháng (Pass)</button>
+        </div>
+
         <div class="topup-grid">
+          <!-- LEFT COLUMN: MONTHLY PASS QR CARD & ACTIVE SUBSCRIPTION -->
           <div>
-            <!-- CURRENT ACTIVE PASS -->
-            <div class="surface-card" id="active-pass-panel">
-              <div class="section-head">
+            <div class="surface-card pass-ticket pass-ticket--monthly">
+              <div class="pass-ticket__header">
                 <div>
-                  <span class="pass-chip">TRANSIT SUBSCRIPTION</span>
-                  <h2 class="section-title" style="margin-top:4px;">Vé Tháng Của Bạn</h2>
+                  <span class="pass-chip pass-chip--gold">MONTHLY PASS &bull; 0 VNĐ / LƯỢT QUÉT</span>
+                  <h2 class="section-title" style="margin-top:6px;">Thẻ QR Vé Tháng Qua Cổng</h2>
                 </div>
-                <span class="status-pill status-pill--SUCCESS" id="my-pass-status-pill" style="display:none;">ĐANG HIỆU LỰC</span>
+                <span class="status-pill status-pill--SUCCESS" id="monthly-status-badge">CHƯA ĐĂNG KÝ</span>
               </div>
+
+              <div class="pass-qr-container" id="monthly-qr-active" style="display:none;">
+                <div class="qr-frame qr-frame--lg qr-frame--gold">
+                  <img id="monthly-qr-img" src="" alt="Mã QR Vé Tháng" class="qr-img qr-img--lg" />
+                </div>
+                <div class="qr-timer-bar"><div id="monthly-qr-progress" class="qr-timer-fill"></div></div>
+                <div class="pass-qr-caption">
+                  <span id="monthly-qr-countdown">Tự động đổi mã sau -- giây</span>
+                  <button type="button" class="vp-btn vp-btn--sm vp-btn--outline" id="btn-monthly-refresh">
+                    &#8635; Cấp mã mới
+                  </button>
+                </div>
+              </div>
+
+              <div class="qr-locked-state" id="monthly-qr-locked">
+                <div class="qr-locked-icon">&#127915;</div>
+                <h3>Bạn Chưa Có Vé Tháng Hiệu Lực</h3>
+                <p>Đăng ký hoặc nạp gói Vé Tháng bên cạnh để mở mã QR đi lại không giới hạn (0 VNĐ/lượt)!</p>
+              </div>
+
+              <div class="pass-divider"></div>
               <div id="ui-active-pass-body"></div>
             </div>
 
-            <!-- PURCHASE HISTORY -->
             <div class="surface-card">
-              <h2 class="section-title" style="margin-bottom:10px;">Lịch Sử Đăng Ký Gói Vé</h2>
+              <h2 class="section-title" style="margin-bottom:10px;">Lịch Sử Vé Tháng Đã Đăng Ký</h2>
               <div id="ui-pass-history-list" class="tx-compact-list"></div>
             </div>
           </div>
 
-          <!-- AVAILABLE PLANS -->
+          <!-- RIGHT COLUMN: BUY OR TOP-UP MONTHLY PASS PLANS -->
           <div class="surface-card">
-            <h2 class="section-title">Chọn Gói Vé Tháng / Vé Tuần</h2>
+            <h2 class="section-title">Các Gói Vé Tháng &amp; Vé Tuần</h2>
             <p class="section-sub" style="margin-bottom:14px;">
-              Thanh toán trực tiếp từ Số dư Ví (<strong id="pass-wallet-balance" class="text-primary">0 VNĐ</strong>). Nếu đang có vé hiệu lực, ngày mới sẽ được <strong>cộng dồn nối tiếp</strong>!
+              Số dư Ví hiện có: <strong id="pass-wallet-balance" class="text-primary">0 VNĐ</strong>. Bạn có thể mua ngay từ Ví hoặc tạo đơn nạp tiền riêng cho gói Vé Tháng!
             </p>
             <div id="ui-pass-plans-list" class="pass-plans-stack"></div>
           </div>
@@ -328,82 +393,170 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 3: NẠP TIỀN (WALLET TOP-UP & VIETQR)                    -->
+      <!-- VIEW 4: NẠP TIỀN — TÁCH RÕ 2 MỤC: TỰ ĐỘNG vs THỦ CÔNG        -->
       <!-- ============================================================ -->
       <section class="app-view" id="view-topup">
+        <!-- EXPLICIT 2-TAB TOP-UP CHANNEL SELECTOR -->
+        <div class="topup-channel-tabs" role="tablist">
+          <button type="button" class="tchan-tab active" data-topup-chan="AUTO">
+            <span class="tchan-badge tchan-badge--auto">TỰ ĐỘNG</span>
+            <strong>Request Nạp Tiền Tự Động</strong>
+            <small>Chuyển khoản Ngân hàng / VietQR tự đối soát</small>
+          </button>
+          <button type="button" class="tchan-tab" data-topup-chan="MANUAL">
+            <span class="tchan-badge tchan-badge--manual">THỦ CÔNG</span>
+            <strong>Request Nạp Tiền Thủ Công</strong>
+            <small>Tiền mặt tại quầy, Ví khác, Biên lai (Admin duyệt)</small>
+          </button>
+        </div>
+
         <div class="topup-grid">
-          <div class="surface-card">
-            <h2 class="section-title">Nạp Tiền Vào Ví Thẻ</h2>
-            <p class="section-sub" style="margin-bottom:16px;">
-              Số dư hiện tại: <strong id="topup-current-balance" class="text-primary">0 VNĐ</strong>
+          <!-- MỤC 1: REQUEST NẠP TIỀN TỰ ĐỘNG (BANK TRANSFER / VIETQR) -->
+          <div class="surface-card" id="panel-topup-auto">
+            <span class="pass-chip">AUTO BANK RECONCILIATION</span>
+            <h2 class="section-title" style="margin-top:4px;">Request Nạp Tiền Tự Động (Bank Transfer)</h2>
+            <p class="section-sub" style="margin-bottom:14px;">
+              Quét mã VietQR chuyển khoản 24/7 — Hệ thống tự động đối chiếu sao kê ngân hàng để duyệt và cộng tiền ngay lập tức.
             </p>
 
-            <label class="field-label">Chọn nhanh mệnh giá (VNĐ)</label>
-            <div class="amount-chips">
-              <button type="button" class="amt-chip" data-amt="20000">20.000đ</button>
-              <button type="button" class="amt-chip" data-amt="50000">50.000đ</button>
-              <button type="button" class="amt-chip active" data-amt="100000">100.000đ</button>
-              <button type="button" class="amt-chip" data-amt="200000">200.000đ</button>
-              <button type="button" class="amt-chip" data-amt="500000">500.000đ</button>
-            </div>
-
-            <form id="form-create-topup" style="margin-top:16px;">
+            <form id="form-create-topup-auto">
               <div class="vp-field">
-                <label for="topup-amount-input">Hoặc nhập số tiền nạp (VNĐ nguyên)</label>
-                <input id="topup-amount-input" type="number" step="1000" min="4000" max="10000000" value="100000" required />
+                <label for="auto-topup-purpose">Đích nạp tiền</label>
+                <select id="auto-topup-purpose">
+                  <option value="WALLET">Nạp vào Ví Vé Lượt (Số dư tiêu chuẩn)</option>
+                  <option value="MONTHLY_PASS">Nạp kích hoạt trực tiếp Gói Vé Tháng</option>
+                </select>
               </div>
-              <button type="submit" class="vp-btn vp-btn--primary vp-btn--block" id="btn-create-topup">
-                Tạo Mã QR Chuyển Khoản Ngân Hàng
+
+              <div class="vp-field" id="auto-plan-field" style="display:none;">
+                <label for="auto-topup-plan">Chọn gói Vé Tháng</label>
+                <select id="auto-topup-plan"></select>
+              </div>
+
+              <div id="auto-amount-block">
+                <label class="field-label">Chọn nhanh mệnh giá (VNĐ)</label>
+                <div class="amount-chips" id="auto-amt-chips">
+                  <button type="button" class="amt-chip" data-amt="20000">20.000đ</button>
+                  <button type="button" class="amt-chip" data-amt="50000">50.000đ</button>
+                  <button type="button" class="amt-chip active" data-amt="100000">100.000đ</button>
+                  <button type="button" class="amt-chip" data-amt="200000">200.000đ</button>
+                  <button type="button" class="amt-chip" data-amt="500000">500.000đ</button>
+                </div>
+
+                <div class="vp-field" style="margin-top:14px;">
+                  <label for="topup-amount-input">Số tiền chuyển khoản (VNĐ nguyên)</label>
+                  <input id="topup-amount-input" type="number" step="1000" min="4000" max="10000000" value="100000" required />
+                </div>
+              </div>
+
+              <button type="submit" class="vp-btn vp-btn--primary vp-btn--block" id="btn-create-topup-auto">
+                &#9889; Tạo Mã VietQR Nạp Tự Động
               </button>
             </form>
           </div>
 
-          <!-- ACTIVE TOPUP PAYMENT ORDER -->
+          <!-- MỤC 2: REQUEST NẠP TIỀN THỦ CÔNG (CASH, COUNTER, OTHER — CẦN ADMIN DUYỆT) -->
+          <div class="surface-card" id="panel-topup-manual" style="display:none;">
+            <span class="pass-chip pass-chip--gold">MANUAL ADMIN APPROVAL</span>
+            <h2 class="section-title" style="margin-top:4px;">Request Nạp Tiền Thủ Công (Cần Admin Duyệt)</h2>
+            <p class="section-sub" style="margin-bottom:14px;">
+              Dành cho nộp <strong>Tiền mặt tại quầy vé</strong>, ví điện tử ngoài hoặc ủy nhiệm chi cần Quản trị viên kiểm tra và phê duyệt thủ công.
+            </p>
+
+            <form id="form-create-topup-manual">
+              <div class="vp-field">
+                <label for="manual-topup-method">Hình thức thanh toán thủ công</label>
+                <select id="manual-topup-method" required>
+                  <option value="CASH_COUNTER">Tiền mặt tại quầy giao dịch / trạm vé</option>
+                  <option value="E_WALLET_OTHER">Ví điện tử khác (MoMo / ZaloPay / VNPay)</option>
+                  <option value="BANK_MANUAL">Chuyển khoản ngoài hệ thống / Biên lai giấy</option>
+                  <option value="OTHER">Hình thức thanh toán khác</option>
+                </select>
+              </div>
+
+              <div class="vp-field">
+                <label for="manual-topup-purpose">Đích nạp tiền</label>
+                <select id="manual-topup-purpose">
+                  <option value="WALLET">Nạp vào Ví Vé Lượt (Số dư tiêu chuẩn)</option>
+                  <option value="MONTHLY_PASS">Nạp kích hoạt trực tiếp Gói Vé Tháng</option>
+                </select>
+              </div>
+
+              <div class="vp-field" id="manual-plan-field" style="display:none;">
+                <label for="manual-topup-plan">Chọn gói Vé Tháng</label>
+                <select id="manual-topup-plan"></select>
+              </div>
+
+              <div class="vp-field" id="manual-amount-field">
+                <label for="manual-amount-input">Số tiền yêu cầu nạp (VNĐ nguyên)</label>
+                <input id="manual-amount-input" type="number" step="1000" min="4000" max="10000000" value="50000" required />
+              </div>
+
+              <div class="vp-field">
+                <label for="manual-note-input">Mã biên lai / Điểm thu tiền mặt / Ghi chú xác minh</label>
+                <textarea id="manual-note-input" rows="2" placeholder="VD: Đã nộp 50.000đ tiền mặt tại Quầy Ga Trung Tâm - Phiếu thu #PT108" required></textarea>
+              </div>
+
+              <button type="submit" class="vp-btn vp-btn--accent vp-btn--block" id="btn-create-topup-manual">
+                &#9997; Gửi Request Nạp Thủ Công Tới Admin
+              </button>
+            </form>
+          </div>
+
+          <!-- ACTIVE TOPUP REQUEST DETAILS -->
           <div class="surface-card" id="active-topup-card" style="display:none;">
             <div class="section-head">
               <div>
-                <span class="pass-chip">VIETQR NAPAS 24/7</span>
-                <h2 class="section-title" style="margin-top:4px;">Thông Tin Chuyển Khoản</h2>
+                <span class="pass-chip" id="topup-detail-channel-chip">VIETQR NAPAS 24/7</span>
+                <h2 class="section-title" style="margin-top:4px;" id="topup-detail-heading">Thông Tin Đơn Nạp Tiền</h2>
               </div>
               <span class="status-pill" id="topup-order-status">PENDING</span>
             </div>
 
-            <div class="topup-qr-box">
+            <div class="topup-qr-box" id="topup-qr-box">
               <img id="topup-qr-img" src="" alt="Mã QR Chuyển Khoản Ngân Hàng" class="qr-img" />
               <div class="vp-muted" style="font-size:0.8rem;margin-top:6px;">
-                Mở ứng dụng Ngân hàng quét mã để tự điền đúng số tiền &amp; nội dung
+                Quét bằng App Ngân hàng để tự điền đúng số tiền &amp; mã nội dung đối soát tự động
               </div>
             </div>
 
             <div class="bank-info-table">
               <div class="bank-row">
-                <span>Mã đơn nạp</span>
+                <span>Mã yêu cầu</span>
                 <strong class="meta-mono" id="topup-tx-code">—</strong>
               </div>
               <div class="bank-row">
-                <span>Ngân hàng nhận</span>
+                <span>Loại Request</span>
+                <strong id="topup-channel-label">—</strong>
+              </div>
+              <div class="bank-row" id="row-topup-purpose">
+                <span>Mục đích nạp</span>
+                <strong id="topup-purpose-label">Ví Vé Lượt</strong>
+              </div>
+              <div class="bank-row" id="row-bank-name">
+                <span>Kênh / Ngân hàng</span>
                 <strong id="topup-bank-name">—</strong>
               </div>
-              <div class="bank-row">
-                <span>Số tài khoản</span>
+              <div class="bank-row" id="row-acc-num">
+                <span>Số tài khoản nhận</span>
                 <div>
                   <strong class="meta-mono" id="topup-acc-num">—</strong>
                   <button type="button" class="copy-chip" id="btn-copy-acc">Sao chép</button>
                 </div>
               </div>
-              <div class="bank-row">
-                <span>Chủ tài khoản</span>
+              <div class="bank-row" id="row-acc-holder">
+                <span>Đơn vị thụ hưởng</span>
                 <strong id="topup-acc-holder">—</strong>
               </div>
               <div class="bank-row">
-                <span>Số tiền chuyển</span>
+                <span>Số tiền nạp</span>
                 <div>
                   <strong class="text-primary" id="topup-order-amount">—</strong>
                   <button type="button" class="copy-chip" id="btn-copy-amt">Sao chép</button>
                 </div>
               </div>
               <div class="bank-row bank-row--highlight">
-                <span>Nội dung CK (Bắt buộc đúng)</span>
+                <span>Mã đối chiếu / Nội dung</span>
                 <div>
                   <strong class="meta-mono text-danger" id="topup-transfer-content">—</strong>
                   <button type="button" class="copy-chip" id="btn-copy-content">Sao chép</button>
@@ -411,21 +564,17 @@
               </div>
             </div>
 
-            <div class="vp-alert vp-alert--success" style="font-size:0.8rem;margin:10px 0;">
-              <strong>Cơ chế duyệt kép (Tự động + Thủ công):</strong> Hệ thống tự động đối chiếu giao dịch trong tài khoản ngân hàng theo mã nội dung <span class="meta-mono" id="topup-auto-code-hint"></span> để cộng ví tức thì, đồng thời hỗ trợ Admin duyệt thủ công song song.
-            </div>
-
             <p class="vp-muted" id="topup-instructions" style="font-size:0.82rem;margin:10px 0;"></p>
 
             <div class="topup-actions" id="topup-pending-actions">
               <button type="button" class="vp-btn vp-btn--primary vp-btn--block" id="btn-auto-check-topup">
-                &#8635; Đối chiếu giao dịch ngân hàng tự động ngay
+                &#8635; Đối chiếu tài khoản ngân hàng tự động ngay
               </button>
               <button type="button" class="vp-btn vp-btn--accent vp-btn--block" id="btn-report-transferred" style="margin-top:8px;">
-                Tôi đã chuyển khoản (Gửi hàng đợi Admin duyệt)
+                Tôi đã chuyển khoản (Chuyển song song sang Admin kiểm tra)
               </button>
               <button type="button" class="vp-btn vp-btn--ghost vp-btn--block" id="btn-cancel-topup" style="margin-top:8px;">
-                Hủy đơn nạp tiền này
+                Hủy yêu cầu nạp tiền này
               </button>
             </div>
           </div>
@@ -433,12 +582,12 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 4: LỊCH SỬ CÁ NHÂN (USAGE, TOPUP & LEDGER)              -->
+      <!-- VIEW 5: LỊCH SỬ CÁ NHÂN                                      -->
       <!-- ============================================================ -->
       <section class="app-view" id="view-history">
         <div class="surface-card">
           <div class="history-tabs">
-            <button type="button" class="h-tab active" data-htab="usage">Lịch sử sử dụng</button>
+            <button type="button" class="h-tab active" data-htab="usage">Lịch sử quét vé</button>
             <button type="button" class="h-tab" data-htab="topup">Lịch sử nạp tiền</button>
             <button type="button" class="h-tab" data-htab="ledger">Sổ cái biến động ví</button>
           </div>
@@ -450,7 +599,7 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 5: TÀI KHOẢN & HỖ TRỢ (ACCOUNT & SUPPORT)              -->
+      <!-- VIEW 6: TÀI KHOẢN & HỖ TRỢ                                   -->
       <!-- ============================================================ -->
       <section class="app-view" id="view-account">
         <div class="topup-grid">
@@ -520,15 +669,19 @@
       </section>
     </main>
 
-    <!-- MOBILE BOTTOM NAVIGATION BAR (5 ITEMS AS SPECIFIED IN SECTION 4.5) -->
-    <nav class="bottom-nav" aria-label="Điều hướng di động">
+    <!-- MOBILE BOTTOM NAVIGATION (WITH SEPARATE VÉ LƯỢT & VÉ THÁNG TABS) -->
+    <nav class="bottom-nav bottom-nav--6" aria-label="Điều hướng di động">
       <button type="button" class="bnav-btn active" data-nav="home">
         <span class="bnav-icon">&#8962;</span>
         <span class="bnav-label">Trang chủ</span>
       </button>
-      <button type="button" class="bnav-btn" data-nav="card">
+      <button type="button" class="bnav-btn" data-nav="single-ticket">
         <span class="bnav-icon">&#9638;</span>
-        <span class="bnav-label">Thẻ của tôi</span>
+        <span class="bnav-label">Vé lượt</span>
+      </button>
+      <button type="button" class="bnav-btn" data-nav="monthly-pass">
+        <span class="bnav-icon">&#127915;</span>
+        <span class="bnav-label">Vé tháng</span>
       </button>
       <button type="button" class="bnav-btn bnav-btn--center" data-nav="topup">
         <span class="bnav-icon">&#43;</span>
@@ -550,7 +703,7 @@
     <div class="vp-modal__backdrop" id="close-fullscreen-backdrop"></div>
     <div class="vp-modal__dialog pass-fullscreen-box">
       <div class="section-head">
-        <strong>Trình Thẻ Qua Cổng Kiểm Soát</strong>
+        <strong id="fullscreen-qr-title">Trình Thẻ Qua Cổng Kiểm Soát</strong>
         <button type="button" class="vp-btn vp-btn--sm vp-btn--ghost" id="btn-close-fullscreen">&times; Đóng</button>
       </div>
       <div class="qr-frame qr-frame--xl" style="margin:16px auto;">
@@ -577,7 +730,7 @@
     </div>
   </div>
 
-  <script src="/static/js/api.js"></script>
-  <script src="/static/js/user_app.js"></script>
+  <script src="/static/js/api.js?v=2.5"></script>
+  <script src="/static/js/user_app.js?v=2.5"></script>
 </body>
 </html>

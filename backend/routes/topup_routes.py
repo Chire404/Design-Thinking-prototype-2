@@ -135,7 +135,13 @@ def payment_webhook():
 @topup_bp.post("/api/webhooks/sepay")
 @rate_limit("sepay_webhook", max_requests=120, window_seconds=60)
 def sepay_live_webhook():
-    """Native SePay Webhook IPN receiver (`Authorization: Apikey <API_KEY>` -> returns `{"success": true}`)."""
+    """Native SePay Webhook IPN receiver.
+
+    Supports both:
+    1. Authenticated `Authorization: Apikey <API_KEY>` matching configured token -> reconciles webhook payload directly.
+    2. Default SePay 'No Auth' webhook (no Authorization header) -> never trusts unauthenticated body; instead
+       wakes up `poll_external_bank_api_and_reconcile()` to verify transactions directly from SePay HTTPS API v2!
+    """
     sync_cfg = get_bank_sync_settings(include_raw_secret=True)
     expected_key = (sync_cfg.get("api_token") or current_app.config.get("PAYMENT_WEBHOOK_SECRET") or "").strip()
     if not expected_key:
@@ -146,6 +152,24 @@ def sepay_live_webhook():
         )
 
     auth_header = (request.headers.get("Authorization") or request.headers.get("X-Api-Key") or "").strip()
+    if not auth_header:
+        # Unauthenticated wakeup ping from SePay ("Không có chứng thực"): verify authoritatively via SePay API v2!
+        stats = poll_external_bank_api_and_reconcile(
+            qr_hmac_secret=str(current_app.config["QR_HMAC_SECRET"]),
+        )
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "ok": True,
+                    "verified_via": "SEPAY_API_POLL",
+                    "message": "Đã xác thực và đồng bộ trực tiếp từ SePay API.",
+                    "data": stats,
+                }
+            ),
+            200,
+        )
+
     provided_key = auth_header
     for prefix in ("apikey ", "bearer "):
         if auth_header.lower().startswith(prefix):
@@ -167,6 +191,7 @@ def sepay_live_webhook():
             {
                 "success": True,
                 "ok": True,
+                "verified_via": "SEPAY_WEBHOOK_APIKEY",
                 "message": "Đã tiếp nhận và đối soát biến động SePay.",
                 "data": stats,
             }

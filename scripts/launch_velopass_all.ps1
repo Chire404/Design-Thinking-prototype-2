@@ -28,7 +28,7 @@ Write-Host "   VELOPASS PROTOTYPE 2 — KHỞI ĐỘNG TỰ ĐỘNG & TÊN MIỀ
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Dọn sạch cửa sổ launcher cũ, tiến trình SSH tunnel cũ và mọi tiến trình run.py cũ
+# 1. Dọn sạch cửa sổ launcher cũ, tiến trình SSH tunnel cũ và MỌI tiến trình Python giữ cổng 5000/5002 (kể cả python3.15.exe)
 Write-Host "[1/5] Dọn dẹp tiến trình máy chủ / đường hầm cũ..." -ForegroundColor Cyan
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match "launch_velopass_all" } |
@@ -38,11 +38,16 @@ Get-CimInstance Win32_Process -Filter "Name='ssh.exe'" -ErrorAction SilentlyCont
     Where-Object { $_.CommandLine -match "serveo\.net" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
-Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -match "run\.py" } |
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match "^python" -and $_.CommandLine -match "run\.py" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
-Start-Sleep -Milliseconds 600
+Get-NetTCPConnection -LocalPort 5000,5002 -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique |
+    Where-Object { $_ -gt 4 } |
+    ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }
+
+Start-Sleep -Milliseconds 800
 
 # 2. Chạy Database Migrations
 Write-Host "[2/5] Đồng bộ lược đồ cơ sở dữ liệu Prototype 2 (Migrations)..." -ForegroundColor Cyan

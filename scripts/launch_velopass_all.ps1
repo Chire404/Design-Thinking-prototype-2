@@ -28,8 +28,12 @@ Write-Host "   VELOPASS PROTOTYPE 2 — KHỞI ĐỘNG TỰ ĐỘNG & TÊN MIỀ
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 1. Dọn sạch tiến trình SSH tunnel cũ và mọi tiến trình run.py cũ (kể cả Prototype 1)
+# 1. Dọn sạch cửa sổ launcher cũ, tiến trình SSH tunnel cũ và mọi tiến trình run.py cũ
 Write-Host "[1/5] Dọn dẹp tiến trình máy chủ / đường hầm cũ..." -ForegroundColor Cyan
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match "launch_velopass_all" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+
 Get-CimInstance Win32_Process -Filter "Name='ssh.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -match "serveo\.net" } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }

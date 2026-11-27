@@ -512,9 +512,9 @@
           const canAct = ["PENDING", "PROCESSING"].includes(t.status);
           const modePillHtml =
             t.approval_mode === "AUTO"
-              ? `<div style="margin-top:4px;"><span class="mode-pill mode-pill--AUTO">&#9889; TỰ ĐỘNG</span></div>`
+              ? `<div style="margin-top:4px;"><span class="mode-pill mode-pill--AUTO">TỰ ĐỘNG</span></div>`
               : t.approval_mode === "MANUAL"
-              ? `<div style="margin-top:4px;"><span class="mode-pill mode-pill--MANUAL">&#9997; THỦ CÔNG</span></div>`
+              ? `<div style="margin-top:4px;"><span class="mode-pill mode-pill--MANUAL">THỦ CÔNG</span></div>`
               : "";
           const purposeTag =
             t.purpose === "MONTHLY_PASS"
@@ -901,10 +901,10 @@
   }
 
   // =========================================================================
-  // 5. TRANSACTIONS LEDGER
+  // 5. TRANSACTIONS LEDGER & EXPORT (CSV / XLSX)
   // =========================================================================
-  async function loadAdminTransactions() {
-    const q = new URLSearchParams({
+  function buildTxFilterParams() {
+    return new URLSearchParams({
       user: document.getElementById("tx-f-user").value.trim(),
       approval_mode: document.getElementById("tx-f-approval")?.value || "",
       type: document.getElementById("tx-f-type").value,
@@ -912,6 +912,10 @@
       date_to: document.getElementById("tx-f-to").value,
       min_amount: document.getElementById("tx-f-min").value,
     });
+  }
+
+  async function loadAdminTransactions() {
+    const q = buildTxFilterParams();
     try {
       const data = await VP.api(`/api/admin/transactions?${q.toString()}`);
       const tbody = document.getElementById("tbody-admin-tx");
@@ -923,8 +927,8 @@
         .map((t) => {
           const isManual = t.approval_mode === "MANUAL";
           const modeBadge = isManual
-            ? `<span class="mode-pill mode-pill--MANUAL">&#9997; THỦ CÔNG</span>`
-            : `<span class="mode-pill mode-pill--AUTO">&#9889; TỰ ĐỘNG</span>`;
+            ? `<span class="mode-pill mode-pill--MANUAL">THỦ CÔNG</span>`
+            : `<span class="mode-pill mode-pill--AUTO">TỰ ĐỘNG</span>`;
           return `
           <tr>
             <td class="mono">${VP.escapeHtml(t.transaction_code)}<div class="adm-muted" style="font-size:0.73rem;">${VP.escapeHtml(t.description)}</div></td>
@@ -944,6 +948,49 @@
     }
   }
   document.getElementById("btn-filter-tx").onclick = loadAdminTransactions;
+
+  async function exportAdminTransactions(fmt) {
+    const q = buildTxFilterParams();
+    q.set("format", fmt);
+    const btn = document.getElementById(fmt === "xlsx" ? "btn-export-tx-xlsx" : "btn-export-tx-csv");
+    if (btn) btn.disabled = true;
+    try {
+      const resp = await fetch(`/api/admin/transactions/export?${q.toString()}`, {
+        method: "GET",
+        credentials: "same-origin",
+      });
+      if (!resp.ok) {
+        let msg = "Không thể xuất file sổ cái giao dịch.";
+        try {
+          const errJson = await resp.json();
+          if (errJson?.error?.message) msg = errJson.error.message;
+        } catch (_) {}
+        throw new Error(msg);
+      }
+      const blob = await resp.blob();
+      const disp = resp.headers.get("Content-Disposition") || "";
+      const m = /filename="([^"]+)"/i.exec(disp);
+      const filename = m ? m[1] : `velopass_so_cai_giao_dich.${fmt}`;
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 2000);
+      VP.toast(`Đã xuất sổ cái giao dịch (${fmt.toUpperCase()}) thành công!`, "success");
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  const btnExpCsv = document.getElementById("btn-export-tx-csv");
+  if (btnExpCsv) btnExpCsv.onclick = () => exportAdminTransactions("csv");
+  const btnExpXlsx = document.getElementById("btn-export-tx-xlsx");
+  if (btnExpXlsx) btnExpXlsx.onclick = () => exportAdminTransactions("xlsx");
 
   // =========================================================================
   // 6. SUPPORT TICKETS

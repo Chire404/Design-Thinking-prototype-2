@@ -40,7 +40,9 @@ from backend.services.pass_service import (
     list_pass_plans,
 )
 from backend.services.topup_service import admin_confirm_topup, admin_reject_topup
-from backend.utils.formatters import format_vnd
+from backend.services import AppError
+from backend.utils.exporters import export_transactions_csv, export_transactions_xlsx
+from backend.utils.formatters import format_vnd, utc_now
 from backend.utils.realtime import realtime_broker
 
 admin_bp = Blueprint("admin_api", __name__, url_prefix="/api/admin")
@@ -152,6 +154,43 @@ def transactions_list():
         max_amount=request.args.get("max_amount", ""),
     )
     return api_success({"transactions": items})
+
+
+@admin_bp.get("/transactions/export")
+@require_admin
+def transactions_export():
+    fmt = (request.args.get("format") or "csv").strip().lower()
+    if fmt not in ("csv", "xlsx"):
+        raise AppError("INVALID_FORMAT", "Định dạng xuất sổ cái phải là csv hoặc xlsx.", 400)
+
+    items = list_admin_transactions(
+        tx_type=request.args.get("type", ""),
+        approval_mode=request.args.get("approval_mode", ""),
+        user_query=request.args.get("user", ""),
+        date_from=request.args.get("date_from", ""),
+        date_to=request.args.get("date_to", ""),
+        min_amount=request.args.get("min_amount", ""),
+        max_amount=request.args.get("max_amount", ""),
+        limit=50000,
+    )
+    stamp = utc_now().strftime("%Y%m%d_%H%M%S")
+    if fmt == "xlsx":
+        payload = export_transactions_xlsx(items)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"velopass_so_cai_giao_dich_{stamp}.xlsx"
+    else:
+        payload = export_transactions_csv(items)
+        mime = "text/csv; charset=utf-8"
+        filename = f"velopass_so_cai_giao_dich_{stamp}.csv"
+
+    return Response(
+        payload,
+        mimetype=mime,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 @admin_bp.get("/scan-logs")

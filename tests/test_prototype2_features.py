@@ -576,3 +576,82 @@ def test_p2_08_vehicle_plate_mandatory_priority_proof_upload_and_student_pass_ga
     assert scan_res["amount"] == 0
     assert scan_res["vehicle_plate"] == "59-X3 686.88"
     assert scan_res["priority_label"] == "Học sinh / Sinh viên"
+
+
+def test_p2_09_admin_ledger_export_csv_and_xlsx_and_clean_ui_labels(app):
+    import io
+    import zipfile
+
+    u_client, tok_u, _, _ = register_and_login_user(app, "export_tester", "exp@example.com", "Phạm Xuất File")
+    adm_client, adm_token, _, _ = login_admin(app)
+    u_auth = {"Authorization": f"Bearer {tok_u}"}
+    adm_auth = {"Authorization": f"Bearer {adm_token}"}
+
+    # Generate 1 MANUAL top-up (50.000 VND) + 1 AUTO usage scan (-4.000 VND)
+    ord_50k = u_client.post("/api/topups", headers=u_auth, json={"amount": 50000}).get_json()["data"]
+    adm_client.post(
+        f"/api/admin/topups/{ord_50k['id']}/confirm",
+        headers=adm_auth,
+        json={"bank_reference": "STMT-EXP-50K", "note": "Khớp sao kê"},
+    )
+    qr_tok = u_client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "SINGLE"}).get_json()["data"]["qr_token"]
+    adm_client.post("/api/qr/scan", headers=adm_auth, json={"qr_token": qr_tok})
+
+    # 1. Non-admin is strictly blocked from exporting ledger
+    forbidden = u_client.get("/api/admin/transactions/export?format=csv", headers=u_auth)
+    assert forbidden.status_code == 403
+
+    # 2. Invalid format returns 400
+    bad_fmt = adm_client.get("/api/admin/transactions/export?format=pdf", headers=adm_auth)
+    assert bad_fmt.status_code == 400
+    assert bad_fmt.get_json()["error"]["code"] == "INVALID_FORMAT"
+
+    # 3. Export CSV (UTF-8 BOM) with user filter
+    csv_res = adm_client.get("/api/admin/transactions/export?format=csv&user=export_tester", headers=adm_auth)
+    assert csv_res.status_code == 200
+    assert "text/csv" in csv_res.content_type
+    assert ".csv" in csv_res.headers.get("Content-Disposition", "")
+    assert csv_res.data.startswith(b"\xef\xbb\xbf")  # UTF-8 BOM for Excel Vietnamese support
+    csv_text = csv_res.data.decode("utf-8-sig")
+    assert "Mã giao dịch" in csv_text
+    assert "Phạm Xuất File" in csv_text
+    assert "THỦ CÔNG" in csv_text
+    assert "TỰ ĐỘNG" in csv_text
+    assert "50000" in csv_text and "-4000" in csv_text
+
+    # Filtered export (MANUAL only -> must exclude AUTO usage row)
+    csv_manual = adm_client.get(
+        "/api/admin/transactions/export?format=csv&user=export_tester&approval_mode=MANUAL",
+        headers=adm_auth,
+    ).data.decode("utf-8-sig")
+    assert "THỦ CÔNG" in csv_manual
+    assert "USAGE" not in csv_manual
+
+    # 4. Export genuine OpenXML XLSX archive
+    xlsx_res = adm_client.get("/api/admin/transactions/export?format=xlsx&user=export_tester", headers=adm_auth)
+    assert xlsx_res.status_code == 200
+    assert "spreadsheetml.sheet" in xlsx_res.content_type
+    assert ".xlsx" in xlsx_res.headers.get("Content-Disposition", "")
+    with zipfile.ZipFile(io.BytesIO(xlsx_res.data), "r") as zf:
+        names = set(zf.namelist())
+        assert {"[Content_Types].xml", "xl/workbook.xml", "xl/styles.xml", "xl/worksheets/sheet1.xml"}.issubset(names)
+        sheet_xml = zf.read("xl/worksheets/sheet1.xml").decode("utf-8")
+        assert "Phạm Xuất File" in sheet_xml
+        assert "THỦ CÔNG" in sheet_xml
+        assert "TỰ ĐỘNG" in sheet_xml
+        assert "<v>50000</v>" in sheet_xml
+        assert "<v>-4000</v>" in sheet_xml
+
+    # 5. Verify clean UI labels & removed emojis in Admin Ledger and User Home Pass Card
+    user_html = u_client.get("/app").get_data(as_text=True)
+    assert "Nạp &amp; Gia Hạn Vé Tháng" in user_html
+    assert "Top-up &amp; Gia Hạn Vé Tháng" not in user_html
+    assert "(Bank QR)" not in user_html
+    assert "Request Nạp Thủ Công" not in user_html
+    assert "&#128179;" not in user_html
+
+    admin_html = adm_client.get("/admin").get_data(as_text=True)
+    admin_js = adm_client.get("/static/js/admin_app.js").get_data(as_text=True)
+    assert "btn-export-tx-csv" in admin_html and "btn-export-tx-xlsx" in admin_html
+    assert "&#9889; TỰ ĐỘNG" not in admin_html and "&#9997; THỦ CÔNG" not in admin_html
+    assert "&#9889; TỰ ĐỘNG" not in admin_js and "&#9997; THỦ CÔNG" not in admin_js

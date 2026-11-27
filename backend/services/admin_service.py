@@ -600,6 +600,7 @@ def list_admin_transactions(
     date_to: str = "",
     min_amount: str = "",
     max_amount: str = "",
+    limit: int = 250,
 ) -> list[dict]:
     """Filterable Wallet Ledger with explicit TỰ ĐỘNG / THỦ CÔNG approval badges."""
     sql = """
@@ -634,7 +635,9 @@ def list_admin_transactions(
         sql += " AND wt.amount <= ?"
         params.append(int(max_amount))
 
-    sql += " ORDER BY wt.id DESC LIMIT 250"
+    safe_limit = min(max(1, int(limit)), 50000)
+    sql += " ORDER BY wt.id DESC LIMIT ?"
+    params.append(safe_limit)
 
     with read_db() as conn:
         rows = rows_to_dicts(conn.execute(sql, params).fetchall())

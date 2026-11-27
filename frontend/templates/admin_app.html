@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0B192C" />
   <title>{{ app_name }} Admin — Trung Tâm Điều Hành &amp; Kiểm Soát Thẻ Vé</title>
   <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg" />
-  <link rel="stylesheet" href="/static/css/admin.css?v=2.6" />
+  <link rel="stylesheet" href="/static/css/admin.css?v=2.7" />
 </head>
 <body>
   <script>
@@ -622,13 +622,21 @@
                 <h2>Sổ Cái Kiểm Soát Tất Cả Giao Dịch</h2>
                 <p class="adm-muted">Phân biệt rõ ràng các giao dịch xử lý <strong style="color:#059669;">TỰ ĐỘNG</strong> và các giao dịch Admin xử lý <strong style="color:#B45309;">THỦ CÔNG</strong></p>
               </div>
+              <div class="filter-bar">
+                <button type="button" class="adm-btn adm-btn--outline adm-btn--sm" id="btn-export-tx-csv">
+                  Xuất file CSV (.csv)
+                </button>
+                <button type="button" class="adm-btn adm-btn--emerald adm-btn--sm" id="btn-export-tx-xlsx">
+                  Xuất file Excel (.xlsx)
+                </button>
+              </div>
             </div>
             <div class="filter-grid filter-grid--7" style="margin-bottom:16px;">
               <input type="text" id="tx-f-user" class="adm-input" placeholder="User hoặc Mã GD..." />
               <select id="tx-f-approval" class="adm-select">
                 <option value="">Tất cả cơ chế (Tự động + Thủ công)</option>
-                <option value="AUTO">&#9889; TỰ ĐỘNG</option>
-                <option value="MANUAL">&#9997; THỦ CÔNG</option>
+                <option value="AUTO">TỰ ĐỘNG</option>
+                <option value="MANUAL">THỦ CÔNG</option>
               </select>
               <select id="tx-f-type" class="adm-select">
                 <option value="">Tất cả loại GD</option>
@@ -874,7 +882,7 @@
   </div>
 
   <script src="/static/vendor/jsQR.js"></script>
-  <script src="/static/js/api.js?v=2.6"></script>
-  <script src="/static/js/admin_app.js?v=2.6"></script>
+  <script src="/static/js/api.js?v=2.7"></script>
+  <script src="/static/js/admin_app.js?v=2.7"></script>
 </body>
 </html>

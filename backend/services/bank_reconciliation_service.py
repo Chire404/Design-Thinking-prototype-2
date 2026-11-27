@@ -44,6 +44,44 @@ def _mask_token(token: str) -> str:
     return "••••••••" + token[-4:]
 
 
+def normalize_bank_api_url(provider: str, raw_url: str) -> str:
+    """Normalize shorthand/base SePay or Casso URLs into full transaction listing endpoints."""
+    url = (raw_url or "").strip()
+    prov = (provider or "SEPAY_API").upper()
+    if not url:
+        return ""
+
+    if prov == "SEPAY_API":
+        trimmed = url.rstrip("/")
+        lower = trimmed.lower()
+        # Handle bare SePay API v2 base URLs: https://userapi.sepay.vn/v2 or https://userapi-sandbox.sepay.vn/v2
+        if lower in (
+            "https://userapi.sepay.vn",
+            "https://userapi.sepay.vn/v2",
+            "http://userapi.sepay.vn",
+            "http://userapi.sepay.vn/v2",
+        ):
+            return "https://userapi.sepay.vn/v2/transactions?per_page=50"
+        if lower in (
+            "https://userapi-sandbox.sepay.vn",
+            "https://userapi-sandbox.sepay.vn/v2",
+        ):
+            return "https://userapi-sandbox.sepay.vn/v2/transactions?per_page=50"
+        # Handle bare SePay API v1 base URLs: https://my.sepay.vn or https://my.sepay.vn/userapi
+        if lower in (
+            "https://my.sepay.vn",
+            "https://my.sepay.vn/userapi",
+            "https://my.sepay.vn/userapi/transactions",
+        ):
+            return "https://my.sepay.vn/userapi/transactions/list?limit=50"
+    elif prov == "CASSO_API":
+        trimmed = url.rstrip("/")
+        if trimmed.lower() in ("https://oauth.casso.vn", "https://oauth.casso.vn/v2"):
+            return "https://oauth.casso.vn/v2/transactions?pageSize=50&sort=DESC"
+
+    return url
+
+
 def get_bank_sync_settings(include_raw_secret: bool = False) -> dict:
     with read_db() as conn:
         row = row_to_dict(conn.execute("SELECT * FROM bank_sync_settings WHERE id = 1").fetchone()) or {}
@@ -61,7 +99,7 @@ def update_bank_sync_settings(admin_id: int, payload: dict, ip_address: str = ""
 
     auto_reconcile = 1 if payload.get("auto_reconcile_enabled", True) in (True, 1, "1", "true") else 0
     bg_poll = 1 if payload.get("background_poll_enabled", False) in (True, 1, "1", "true") else 0
-    api_url = str(payload.get("api_url") or "").strip()
+    api_url = normalize_bank_api_url(provider, str(payload.get("api_url") or "").strip())
     poll_sec = int(payload.get("poll_interval_seconds") or 20)
     strict_acc = 1 if payload.get("strict_account_match", True) in (True, 1, "1", "true") else 0
     grace_min = int(payload.get("allow_expired_grace_minutes") if payload.get("allow_expired_grace_minutes") is not None else 120)
@@ -143,8 +181,9 @@ def _parse_int_amount(raw_val) -> int:
         return raw_val
     if isinstance(raw_val, float):
         return int(round(raw_val))
-    s = str(raw_val).strip()
-    # Handle formatted strings like "100,000" or "100.000" or "+100000 VND"
+    s = re.sub(r"[^\d.,-]", "", str(raw_val).strip())
+    # Strip trailing 1-2 digit decimal cents (e.g. "50000.00" -> "50000") while keeping 3-digit grouping ("100.000")
+    s = re.sub(r"[.,]\d{1,2}$", "", s)
     s_clean = re.sub(r"[^\d-]", "", s)
     if not s_clean or s_clean == "-":
         return 0
@@ -258,9 +297,15 @@ def reconcile_bank_entries(
                 stats["already_settled"] += 1
                 continue
 
-            # 2. Verify receiving account number if provided & strict_account_match is on
+            # 2. Verify receiving account number (or Virtual Account VA) if provided & strict_account_match is on
             incoming_acc_clean = _clean_digits_alnum(acc_num)
-            if strict_acc and expected_acc and incoming_acc_clean and incoming_acc_clean != expected_acc:
+            incoming_va_clean = _clean_digits_alnum(str(item.get("sub_account") or ""))
+            acc_matches = (
+                not incoming_acc_clean
+                or incoming_acc_clean == expected_acc
+                or (incoming_va_clean and incoming_va_clean == expected_acc)
+            )
+            if strict_acc and expected_acc and not acc_matches:
                 conn.execute(
                     """
                     INSERT INTO bank_statement_entries (
@@ -488,18 +533,49 @@ def reconcile_bank_entries(
 
 
 def _normalize_remote_api_payload(provider: str, payload) -> list[dict]:
-    """Normalize SePay, Casso, or Custom JSON Bank Statement API responses into standard entries."""
+    """Normalize SePay (v2 & v1 & Webhook), Casso, or Custom JSON Bank Statement API responses into standard entries."""
     out: list[dict] = []
     if provider == "SEPAY_API":
-        records = payload.get("transactions", []) if isinstance(payload, dict) else []
+        if isinstance(payload, dict):
+            if isinstance(payload.get("data"), list):
+                records = payload["data"]
+            elif isinstance(payload.get("transactions"), list):
+                records = payload["transactions"]
+            elif "transferAmount" in payload or "amount_in" in payload:
+                records = [payload]
+            else:
+                records = []
+        elif isinstance(payload, list):
+            records = payload
+        else:
+            records = []
+
         for r in records:
+            if not isinstance(r, dict):
+                continue
+            direction = str(r.get("transfer_type") or r.get("transferType") or "in").strip().lower()
+            raw_amt_in = r.get("amount_in") if r.get("amount_in") is not None else r.get("transferAmount")
+            amt_in = 0 if direction == "out" else _parse_int_amount(raw_amt_in or 0)
+
+            ref_num = str(r.get("reference_number") or r.get("referenceCode") or "").strip()
+            sepay_id = str(r.get("id") or "").strip()
+            tx_id = ref_num or (f"SEPAY-{sepay_id}" if sepay_id else "")
+
+            parts = [
+                str(r.get("transaction_content") or r.get("content") or "").strip(),
+                str(r.get("code") or "").strip(),
+                str(r.get("description") or "").strip(),
+            ]
+            merged_desc = " ".join(p for p in dict.fromkeys(parts) if p)
+
             out.append(
                 {
-                    "bank_tx_id": str(r.get("reference_number") or r.get("id") or "").strip(),
-                    "account_number": str(r.get("account_number") or ""),
-                    "amount_in": _parse_int_amount(r.get("amount_in") or r.get("transferAmount") or 0),
-                    "description": str(r.get("transaction_content") or r.get("content") or ""),
-                    "tx_time": str(r.get("transaction_date") or utc_now_iso()),
+                    "bank_tx_id": tx_id,
+                    "account_number": str(r.get("account_number") or r.get("accountNumber") or ""),
+                    "sub_account": str(r.get("va") or r.get("subAccount") or ""),
+                    "amount_in": amt_in,
+                    "description": merged_desc,
+                    "tx_time": str(r.get("transaction_date") or r.get("transactionDate") or utc_now_iso()),
                     "raw": r,
                 }
             )
@@ -561,11 +637,64 @@ def poll_external_bank_api_and_reconcile(qr_hmac_secret: str, db_path=None) -> d
             )
         raise AppError("BANK_API_NOT_CONFIGURED", msg, 400)
 
+def _fetch_json_url(url: str, headers: dict) -> object:
+    req = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            raw_bytes = resp.read()
+    except urllib.error.HTTPError as exc:
+        err_body = ""
+        try:
+            err_body = exc.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            pass
+        detail = f"HTTP {exc.code}"
+        if err_body:
+            try:
+                err_json = json.loads(err_body)
+                msg = err_json.get("message") or err_json.get("error") or err_body[:140]
+                detail = f"HTTP {exc.code} ({msg})"
+            except Exception:
+                detail = f"HTTP {exc.code} ({err_body[:120]})"
+        raise ValueError(detail) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise ValueError(str(exc)) from exc
+
+    text = raw_bytes.decode("utf-8", errors="replace").strip()
+    if not text:
+        raise ValueError(f"Endpoint '{url}' trả về phản hồi rỗng (hãy kiểm tra đường dẫn /transactions).")
+    return json.loads(text)
+
+
+def poll_external_bank_api_and_reconcile(qr_hmac_secret: str, db_path=None) -> dict:
+    """Fetch recent transactions from configured Bank API (SePay v2/v1, Casso, Custom) and run auto-reconciliation."""
+    with read_db(db_path) as conn:
+        cfg = row_to_dict(conn.execute("SELECT * FROM bank_sync_settings WHERE id = 1").fetchone()) or {}
+
+    provider = cfg.get("provider") or "SEPAY_API"
+    raw_api_url = (cfg.get("api_url") or "").strip()
+    api_url = normalize_bank_api_url(provider, raw_api_url)
+    api_token = (cfg.get("api_token") or "").strip()
+
+    if provider == "MANUAL_IMPORT_ONLY" or (not api_url and not api_token):
+        msg = "Chưa cấu hình API URL / Token ngân hàng trực tuyến. Hãy cấu hình SePay/Casso API hoặc tải lên sao kê CSV/JSON (song song duyệt thủ công)."
+        with atomic_transaction(db_path) as conn:
+            conn.execute(
+                "UPDATE bank_sync_settings SET last_synced_at = ?, last_sync_status = 'NOT_CONFIGURED', last_sync_message = ? WHERE id = 1",
+                (utc_now_iso(), msg),
+            )
+        raise AppError("BANK_API_NOT_CONFIGURED", msg, 400)
+
     if not api_url:
         if provider == "SEPAY_API":
-            api_url = "https://my.sepay.vn/userapi/transactions/list?limit=50"
+            api_url = "https://userapi.sepay.vn/v2/transactions?per_page=50"
         elif provider == "CASSO_API":
             api_url = "https://oauth.casso.vn/v2/transactions?pageSize=50&sort=DESC"
+
+    # Persist auto-normalized URL if user entered a shorthand base URL like https://userapi.sepay.vn/v2
+    if raw_api_url and api_url != raw_api_url:
+        with atomic_transaction(db_path) as conn:
+            conn.execute("UPDATE bank_sync_settings SET api_url = ? WHERE id = 1", (api_url,))
 
     headers = {"Accept": "application/json", "User-Agent": "VeloPass-Reconciler/2.0"}
     if api_token:
@@ -574,12 +703,32 @@ def poll_external_bank_api_and_reconcile(qr_hmac_secret: str, db_path=None) -> d
         else:
             headers["Authorization"] = f"Bearer {api_token}"
 
-    req = urllib.request.Request(api_url, headers=headers, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            raw_bytes = resp.read()
-            payload = json.loads(raw_bytes.decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        try:
+            payload = _fetch_json_url(api_url, headers)
+        except ValueError as primary_err:
+            # Smart SePay v2 <-> v1 fallback if user created a v1 API token on my.sepay.vn (or vice versa)
+            if provider == "SEPAY_API" and "userapi.sepay.vn/v2" in api_url:
+                v1_fallback = "https://my.sepay.vn/userapi/transactions/list?limit=50"
+                try:
+                    payload = _fetch_json_url(v1_fallback, headers)
+                    api_url = v1_fallback
+                    with atomic_transaction(db_path) as conn:
+                        conn.execute("UPDATE bank_sync_settings SET api_url = ? WHERE id = 1", (v1_fallback,))
+                except ValueError:
+                    raise primary_err
+            elif provider == "SEPAY_API" and "my.sepay.vn/userapi" in api_url:
+                v2_fallback = "https://userapi.sepay.vn/v2/transactions?per_page=50"
+                try:
+                    payload = _fetch_json_url(v2_fallback, headers)
+                    api_url = v2_fallback
+                    with atomic_transaction(db_path) as conn:
+                        conn.execute("UPDATE bank_sync_settings SET api_url = ? WHERE id = 1", (v2_fallback,))
+                except ValueError:
+                    raise primary_err
+            else:
+                raise
+    except ValueError as exc:
         err_msg = f"Lỗi kết nối API ngân hàng ({provider}): {exc}"
         with atomic_transaction(db_path) as conn:
             conn.execute(

@@ -296,13 +296,18 @@
                 </div>
                 <div class="adm-grid-2">
                   <div class="adm-field">
-                    <label>Endpoint API URL (để trống sẽ dùng URL chuẩn của SePay/Casso)</label>
-                    <input type="text" id="rc-api-url" class="adm-input" placeholder="https://my.sepay.vn/userapi/transactions/list" />
+                    <label>Endpoint API URL (để trống tự dùng chuẩn SePay v2)</label>
+                    <input type="text" id="rc-api-url" class="adm-input" placeholder="https://userapi.sepay.vn/v2/transactions?per_page=50" />
                   </div>
                   <div class="adm-field">
-                    <label>API Token / Secret Key</label>
-                    <input type="password" id="rc-api-token" class="adm-input" placeholder="Nhập Bearer / Apikey từ cổng ngân hàng" />
+                    <label>API Token / Secret Key (dùng chung cho API v2 &amp; Webhook)</label>
+                    <input type="password" id="rc-api-token" class="adm-input" placeholder="Dán Personal Access Token / API Key từ SePay" />
                   </div>
+                </div>
+                <div class="adm-alert adm-alert--info" style="margin-bottom:12px;font-size:0.81rem;">
+                  <strong>URL nhận SePay Webhook tức thì (Tùy chọn song song với quét API):</strong>
+                  <code id="rc-sepay-webhook-url" style="user-select:all;font-weight:700;">/api/webhooks/sepay</code>
+                  — Trên SePay &rarr; <em>Webhooks</em>, chọn xác thực <strong>API Key</strong> và điền cùng mã <em>API Token / Secret Key</em> ở trên.
                 </div>
                 <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px;font-size:0.84rem;">
                   <label class="toggle-chip" style="color:#0F172A;">
@@ -882,7 +887,7 @@
   </div>
 
   <script src="/static/vendor/jsQR.js"></script>
-  <script src="/static/js/api.js?v=2.7"></script>
-  <script src="/static/js/admin_app.js?v=2.7"></script>
+  <script src="/static/js/api.js?v=2.8"></script>
+  <script src="/static/js/admin_app.js?v=2.8"></script>
 </body>
 </html>

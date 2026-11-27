@@ -655,3 +655,105 @@ def test_p2_09_admin_ledger_export_csv_and_xlsx_and_clean_ui_labels(app):
     assert "btn-export-tx-csv" in admin_html and "btn-export-tx-xlsx" in admin_html
     assert "&#9889; TỰ ĐỘNG" not in admin_html and "&#9997; THỦ CÔNG" not in admin_html
     assert "&#9889; TỰ ĐỘNG" not in admin_js and "&#9997; THỦ CÔNG" not in admin_js
+
+
+def test_p2_10_sepay_v2_base_url_normalization_decimal_amounts_and_native_webhook(app):
+    u_client, tok_u, _, _ = register_and_login_user(app, "sepay_v2_u", "sepayv2@example.com", "Lưu Minh Thắng")
+    adm_client, adm_token, _, _ = login_admin(app)
+    u_auth = {"Authorization": f"Bearer {tok_u}"}
+    adm_auth = {"Authorization": f"Bearer {adm_token}"}
+
+    # 1. Admin enters bare SePay v2 base URL 'https://userapi.sepay.vn/v2' -> auto-normalized to /v2/transactions!
+    cfg_saved = adm_client.put(
+        "/api/admin/reconciliation/settings",
+        headers=adm_auth,
+        json={
+            "provider": "SEPAY_API",
+            "api_url": "https://userapi.sepay.vn/v2",
+            "api_token": "sepay-v2-live-key-64chars-abcdef123456",
+            "auto_reconcile_enabled": 1,
+            "background_poll_enabled": 1,
+            "poll_interval_seconds": 20,
+            "strict_account_match": 1,
+        },
+    ).get_json()["data"]
+    assert cfg_saved["api_url"] == "https://userapi.sepay.vn/v2/transactions?per_page=50"
+
+    # 2. Test SePay API v2 polling (`data: [...]`) AND decimal ".00" amount parsing!
+    order_poll = u_client.post("/api/topups", headers=u_auth, json={"amount": 50000}).get_json()["data"]
+    acc_num = order_poll["bank"]["account_number"]
+
+    sepay_v2_payload = json.dumps(
+        {
+            "status": "success",
+            "data": [
+                {
+                    "id": "uuid-tx-001",
+                    "transaction_date": "2026-11-27 20:45:00",
+                    "account_number": acc_num,
+                    "va": None,
+                    "transfer_type": "in",
+                    "amount_in": "50000.00",
+                    "amount_out": 0,
+                    "transaction_content": f"MBVCB CK {order_poll['transfer_content']}",
+                    "reference_number": "FT26331999888",
+                    "code": order_poll["transfer_content"],
+                },
+                {
+                    "id": "uuid-tx-out-002",
+                    "transaction_date": "2026-11-27 20:46:00",
+                    "account_number": acc_num,
+                    "transfer_type": "out",
+                    "amount_in": 0,
+                    "amount_out": 20000,
+                    "transaction_content": "RUT TIEN",
+                    "reference_number": "FT26331999889",
+                },
+            ],
+        }
+    ).encode("utf-8")
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = sepay_v2_payload
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+
+    with patch.object(urllib.request, "urlopen", return_value=mock_resp):
+        sync_res = adm_client.post("/api/admin/reconciliation/sync-now", headers=adm_auth)
+        assert sync_res.status_code == 200
+        assert sync_res.get_json()["data"]["auto_approved"] == 1
+        assert sync_res.get_json()["data"]["skipped_non_credit"] == 1
+
+    assert u_client.get("/api/user/balance", headers=u_auth).get_json()["data"]["wallet"]["balance"] == 50000
+
+    # 3. Test Native SePay Webhook (`POST /api/webhooks/sepay` with `Authorization: Apikey <token>`)
+    order_wh = u_client.post("/api/topups", headers=u_auth, json={"amount": 30000}).get_json()["data"]
+
+    bad_wh = u_client.post(
+        "/api/webhooks/sepay",
+        headers={"Authorization": "Apikey wrong-key"},
+        json={"id": 99112, "transferType": "in", "transferAmount": 30000, "content": order_wh["transfer_content"]},
+    )
+    assert bad_wh.status_code == 401
+
+    good_wh = u_client.post(
+        "/api/webhooks/sepay",
+        headers={"Authorization": "Apikey sepay-v2-live-key-64chars-abcdef123456"},
+        json={
+            "id": 99112,
+            "gateway": "MBBank",
+            "transactionDate": "2026-11-27 20:48:00",
+            "accountNumber": acc_num,
+            "subAccount": "",
+            "code": order_wh["transfer_content"],
+            "content": f"NGUYEN VAN A {order_wh['transfer_content']}",
+            "transferType": "in",
+            "transferAmount": 30000,
+            "referenceCode": "FT26331777666",
+        },
+    )
+    assert good_wh.status_code == 200
+    wh_json = good_wh.get_json()
+    assert wh_json["success"] is True
+    assert wh_json["data"]["auto_approved"] == 1
+    assert u_client.get("/api/user/balance", headers=u_auth).get_json()["data"]["wallet"]["balance"] == 80000

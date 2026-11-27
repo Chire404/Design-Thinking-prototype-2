@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, current_app, g, request
+import hmac
+
+from flask import Blueprint, current_app, g, jsonify, request
 
 from backend.routes import api_success, rate_limit, require_auth
+from backend.services import AppError
 from backend.services.bank_reconciliation_service import (
+    _normalize_remote_api_payload,
     get_bank_sync_settings,
     poll_external_bank_api_and_reconcile,
+    reconcile_bank_entries,
 )
 from backend.services.topup_service import (
     cancel_user_topup,
@@ -125,3 +130,46 @@ def payment_webhook():
         qr_hmac_secret=str(current_app.config["QR_HMAC_SECRET"]),
     )
     return api_success(result, "Xử lý webhook thanh toán hoàn tất.", 200)
+
+
+@topup_bp.post("/api/webhooks/sepay")
+@rate_limit("sepay_webhook", max_requests=120, window_seconds=60)
+def sepay_live_webhook():
+    """Native SePay Webhook IPN receiver (`Authorization: Apikey <API_KEY>` -> returns `{"success": true}`)."""
+    sync_cfg = get_bank_sync_settings(include_raw_secret=True)
+    expected_key = (sync_cfg.get("api_token") or current_app.config.get("PAYMENT_WEBHOOK_SECRET") or "").strip()
+    if not expected_key:
+        raise AppError(
+            "SEPAY_KEY_NOT_CONFIGURED",
+            "Chưa lưu API Token / Secret Key trong Cấu hình đối soát SePay.",
+            503,
+        )
+
+    auth_header = (request.headers.get("Authorization") or request.headers.get("X-Api-Key") or "").strip()
+    provided_key = auth_header
+    for prefix in ("apikey ", "bearer "):
+        if auth_header.lower().startswith(prefix):
+            provided_key = auth_header[len(prefix) :].strip()
+            break
+
+    if not provided_key or not hmac.compare_digest(provided_key, expected_key):
+        return jsonify({"success": False, "ok": False, "message": "Invalid SePay API Key"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    entries = _normalize_remote_api_payload("SEPAY_API", payload)
+    stats = reconcile_bank_entries(
+        entries,
+        source="WEBHOOK",
+        qr_hmac_secret=str(current_app.config["QR_HMAC_SECRET"]),
+    )
+    return (
+        jsonify(
+            {
+                "success": True,
+                "ok": True,
+                "message": "Đã tiếp nhận và đối soát biến động SePay.",
+                "data": stats,
+            }
+        ),
+        200,
+    )

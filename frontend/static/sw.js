@@ -2,7 +2,7 @@
  * Immediately purges older caches (including Prototype 1's velopass-shell-v1)
  * and uses Network-First for static assets so UI updates always appear immediately!
  */
-const CACHE_NAME = "velopass-proto2-v7";
+const CACHE_NAME = "velopass-proto2-v8";
 const STATIC_ASSETS = [
   "/static/icons/logo.svg",
   "/static/icons/icon-192.svg",

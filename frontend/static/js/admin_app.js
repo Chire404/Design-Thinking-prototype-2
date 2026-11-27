@@ -1189,12 +1189,20 @@
       document.getElementById("rc-interval").value = cfg.poll_interval_seconds || 20;
       document.getElementById("rc-api-url").value = cfg.api_url || "";
       document.getElementById("rc-api-token").value = cfg.api_token_masked || "";
+      const whUrlEl = document.getElementById("rc-sepay-webhook-url");
+      if (whUrlEl) whUrlEl.textContent = `${window.location.origin}/api/webhooks/sepay`;
       document.getElementById("rc-auto-approve").checked = Boolean(cfg.auto_reconcile_enabled);
       document.getElementById("rc-bg-poll").checked = Boolean(cfg.background_poll_enabled);
       document.getElementById("rc-strict-acc").checked = Boolean(cfg.strict_account_match);
 
       const banner = document.getElementById("reconcile-status-banner");
-      banner.className = `adm-alert ${cfg.last_sync_status === "ERROR" ? "adm-alert--danger" : "adm-alert--info"}`;
+      const bannerCls =
+        cfg.last_sync_status === "ERROR"
+          ? "adm-alert--danger"
+          : cfg.last_sync_status === "OK"
+          ? "adm-alert--success"
+          : "adm-alert--info";
+      banner.className = `adm-alert ${bannerCls}`;
       banner.innerHTML = `
         <strong>Trạng thái bộ đối soát tự động (${VP.escapeHtml(cfg.provider)}):</strong>
         ${VP.escapeHtml(cfg.last_sync_message || "Sẵn sàng")}

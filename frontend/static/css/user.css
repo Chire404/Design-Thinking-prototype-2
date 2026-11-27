@@ -1337,3 +1337,32 @@ html, body {
   background: #FEF3C7;
   color: #92400E;
 }
+
+
+/* V2.6: 4-COLUMN CARD META (VEHICLE PLATE) & PRIORITY REGISTRATION */
+.transit-card__meta--4 {
+  grid-template-columns: 1.25fr 1fr 0.95fr 0.8fr;
+}
+
+@media (max-width: 480px) {
+  .transit-card__meta--4 {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 10px;
+  }
+}
+
+.prio-mini-chip {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.priority-reg-card {
+  border-top: 4px solid #F59E0B;
+}

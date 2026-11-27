@@ -122,19 +122,35 @@ def emit_user_realtime_update(user_id: int, event_type: str, payload: dict) -> N
     realtime_broker.publish_to_user(user_id, event_type, payload)
 
 
+PRIORITY_LABELS = {
+    "NONE": "Phổ thông",
+    "STUDENT": "Học sinh / Sinh viên",
+    "SENIOR": "Người cao tuổi (>= 60 tuổi)",
+    "DISABLED": "Người khuyết tật",
+    "CONTRIBUTOR": "Người có công",
+    "STAFF": "Cán bộ / Nhân viên nội bộ",
+}
+
+
 def get_user_wallet_and_card_snapshot(user_id: int) -> dict:
-    """Return full User dashboard/card/wallet/monthly-pass snapshot with formatted VND strings."""
+    """Return full User dashboard/card/wallet/monthly-pass/priority snapshot with formatted VND strings."""
     with read_db() as conn:
         settings = get_system_settings_in_tx(conn)
         fare = int(settings["fare_amount"])
         user = row_to_dict(
             conn.execute(
-                "SELECT id, username, full_name, email, phone, role, status, created_at FROM users WHERE id = ?",
+                """
+                SELECT id, username, full_name, email, phone, vehicle_plate,
+                       priority_type, priority_status, priority_card_code, priority_org, priority_expires_at,
+                       role, status, created_at
+                FROM users WHERE id = ?
+                """,
                 (user_id,),
             ).fetchone()
         )
         if not user:
             raise AppError("USER_NOT_FOUND", "Không tìm thấy tài khoản.", 404)
+        user["priority_label"] = PRIORITY_LABELS.get(user.get("priority_type") or "NONE", "Phổ thông")
 
         wallet = row_to_dict(conn.execute("SELECT * FROM wallets WHERE user_id = ?", (user_id,)).fetchone())
         card = row_to_dict(conn.execute("SELECT * FROM virtual_cards WHERE user_id = ?", (user_id,)).fetchone())
@@ -222,7 +238,7 @@ def get_user_wallet_and_card_snapshot(user_id: int) -> dict:
         "wallet": wallet,
         "card": card,
         "active_pass": active_pass,
-        "pass_plans": list_pass_plans(include_inactive=False),
+        "pass_plans": list_pass_plans(include_inactive=False, user_id=user_id),
         "bank_auto_sync": {
             "auto_reconcile_enabled": bool(int(sync_cfg.get("auto_reconcile_enabled", 1))),
             "background_poll_enabled": bool(int(sync_cfg.get("background_poll_enabled", 0))),

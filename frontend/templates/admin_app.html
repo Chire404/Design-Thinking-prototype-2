@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0B192C" />
   <title>{{ app_name }} Admin — Trung Tâm Điều Hành &amp; Kiểm Soát Thẻ Vé</title>
   <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg" />
-  <link rel="stylesheet" href="/static/css/admin.css?v=2.5" />
+  <link rel="stylesheet" href="/static/css/admin.css?v=2.6" />
 </head>
 <body>
   <script>
@@ -37,7 +37,9 @@
           &#8645; Đối Soát &amp; Duyệt Nạp <span class="snav-badge" id="badge-pending-topups" style="display:none;">0</span>
         </button>
         <button class="snav-btn" data-asec="passes">&#127915; Quản lý Vé Tháng (Pass)</button>
-        <button class="snav-btn" data-asec="users">&#9787; Quản lý Người Dùng</button>
+        <button class="snav-btn" data-asec="users">
+          &#9787; Quản lý Người Dùng <span class="snav-badge" id="badge-pending-priority" style="display:none;">0</span>
+        </button>
         <button class="snav-btn" data-asec="transactions">&#9776; Sổ Cái Giao Dịch</button>
         <button class="snav-btn" data-asec="support">
           &#9993; Yêu Cầu Hỗ Trợ <span class="snav-badge" id="badge-open-support" style="display:none;">0</span>
@@ -487,6 +489,12 @@
                   <label>Mô tả quyền lợi</label>
                   <textarea id="pp-desc" class="adm-input" rows="2"></textarea>
                 </div>
+                <div class="adm-field">
+                  <label class="toggle-chip" style="color:#0F172A;font-weight:700;">
+                    <input type="checkbox" id="pp-requires-priority" />
+                    <span>Chỉ dành cho Đối tượng Ưu tiên đã duyệt (Ẩn với User thường)</span>
+                  </label>
+                </div>
                 <div style="display:flex;gap:8px;">
                   <button type="submit" class="adm-btn adm-btn--primary">Lưu Gói Vé Tháng</button>
                   <button type="button" class="adm-btn adm-btn--outline" id="btn-reset-pp-form">Làm mới form</button>
@@ -533,19 +541,53 @@
         </section>
 
         <!-- ======================================================== -->
-        <!-- SECTION 4: USER MANAGEMENT                               -->
+        <!-- SECTION 4: USER MANAGEMENT & PRIORITY VERIFICATION       -->
         <!-- ======================================================== -->
         <section class="adm-section" id="asec-users">
           <div class="adm-panel">
             <div class="panel-head">
-              <h2>Quản Lý Hành Khách &amp; Thẻ Điện Tử</h2>
+              <div>
+                <h2>Xét Duyệt Hồ Sơ Đối Tượng Ưu Tiên (HSSV / Minh Chứng Ảnh)</h2>
+                <p class="adm-muted">Kiểm tra ảnh chụp Thẻ sinh viên / Portal trường học để mở khóa gói Vé Tháng Ưu Đãi HSSV</p>
+              </div>
+              <div class="filter-bar">
+                <select id="filter-priority-status" class="adm-select">
+                  <option value="">Tất cả hồ sơ</option>
+                  <option value="PENDING">PENDING (Chờ duyệt)</option>
+                  <option value="APPROVED">APPROVED (Đã duyệt)</option>
+                  <option value="REJECTED">REJECTED (Từ chối)</option>
+                </select>
+                <button type="button" class="adm-btn adm-btn--outline adm-btn--sm" id="btn-refresh-priority">Làm mới</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>#ID</th>
+                    <th>Hành khách / Biển số</th>
+                    <th>Nhóm ưu tiên &amp; Đơn vị</th>
+                    <th>Mã thẻ HSSV / CCCD</th>
+                    <th>Ảnh minh chứng</th>
+                    <th>Trạng thái</th>
+                    <th>Thao tác xét duyệt</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-admin-priority"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="adm-panel">
+            <div class="panel-head">
+              <h2>Quản Lý Hành Khách, Biển Số Xe &amp; Thẻ Điện Tử</h2>
               <div class="filter-bar">
                 <select id="filter-user-status" class="adm-select">
                   <option value="">Mọi trạng thái</option>
                   <option value="ACTIVE">ACTIVE</option>
                   <option value="SUSPENDED">SUSPENDED</option>
                 </select>
-                <input type="text" id="filter-user-search" class="adm-input" placeholder="Tên, email, username hoặc mã thẻ VP-..." />
+                <input type="text" id="filter-user-search" class="adm-input" placeholder="Tên, email, biển số xe hoặc mã thẻ VP-..." />
                 <button type="button" class="adm-btn adm-btn--primary" id="btn-search-users">Tìm kiếm</button>
               </div>
             </div>
@@ -556,6 +598,7 @@
                   <tr>
                     <th>ID</th>
                     <th>Hành khách</th>
+                    <th>Biển số / Đối tượng</th>
                     <th>Mã thẻ điện tử</th>
                     <th>Số dư ví</th>
                     <th>Trạng thái thẻ</th>
@@ -816,8 +859,22 @@
     </div>
   </div>
 
+  <!-- MODAL: PROOF IMAGE PREVIEW -->
+  <div class="adm-modal" id="modal-proof-preview" style="display:none;">
+    <div class="adm-modal__backdrop" data-close-modal="modal-proof-preview"></div>
+    <div class="adm-modal__box adm-modal__box--lg">
+      <div class="panel-head">
+        <h3 id="proof-preview-title" style="margin:0;">Ảnh Minh Chứng Đối Tượng Ưu Tiên</h3>
+        <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" data-close-modal="modal-proof-preview">&times; Đóng</button>
+      </div>
+      <div style="text-align:center;background:#0F172A;padding:14px;border-radius:14px;">
+        <img id="proof-preview-img" src="" alt="Minh chứng HSSV" style="max-width:100%;max-height:70vh;border-radius:8px;object-fit:contain;" />
+      </div>
+    </div>
+  </div>
+
   <script src="/static/vendor/jsQR.js"></script>
-  <script src="/static/js/api.js?v=2.5"></script>
-  <script src="/static/js/admin_app.js?v=2.5"></script>
+  <script src="/static/js/api.js?v=2.6"></script>
+  <script src="/static/js/admin_app.js?v=2.6"></script>
 </body>
 </html>

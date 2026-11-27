@@ -454,3 +454,125 @@ def test_p2_07_split_single_vs_monthly_qr_tabs_home_pass_topup_dual_channels_and
     assert len(manual_txs) == 1
     assert manual_txs[0]["approval_badge_text"] == "THỦ CÔNG"
     assert manual_txs[0]["amount"] == 20000
+
+
+def test_p2_08_vehicle_plate_mandatory_priority_proof_upload_and_student_pass_gate(app):
+    _, tok_u, _, _ = register_and_login_user(app, "sv_bk_2026", "svbk@example.com", "Nguyễn Minh Khôi")
+    _, adm_token, _, _ = login_admin(app)
+    client = app.test_client()
+    u_auth = {"Authorization": f"Bearer {tok_u}"}
+    adm_auth = {"Authorization": f"Bearer {adm_token}"}
+
+    # 1. Update personal profile with Vehicle License Plate (Biển số xe)
+    prof_res = client.put(
+        "/api/user/profile",
+        headers=u_auth,
+        json={"full_name": "Nguyễn Minh Khôi", "phone": "0912345678", "vehicle_plate": "59-x3 686.88"},
+    )
+    assert prof_res.status_code == 200
+    assert prof_res.get_json()["data"]["user"]["vehicle_plate"] == "59-X3 686.88"
+
+    # Admin can search user directly by license plate
+    adm_search = client.get("/api/admin/users?search=59-X3", headers=adm_auth).get_json()["data"]["users"]
+    assert len(adm_search) == 1
+    assert adm_search[0]["vehicle_plate"] == "59-X3 686.88"
+
+    # 2. Student Discount Monthly Pass (MONTHLY_STUDENT) is HIDDEN from normal user in ALL user endpoints
+    adm_plans = client.get("/api/admin/pass-plans", headers=adm_auth).get_json()["data"]["plans"]
+    student_plan = next(p for p in adm_plans if p["code"] == "MONTHLY_STUDENT")
+    assert student_plan["requires_priority"] == 1
+    assert student_plan["price"] == 60000
+
+    public_codes = {p["code"] for p in client.get("/api/passes/plans", headers=u_auth).get_json()["data"]["plans"]}
+    my_pass_codes = {p["code"] for p in client.get("/api/passes/my", headers=u_auth).get_json()["data"]["plans"]}
+    dash_codes = {p["code"] for p in client.get("/api/user/dashboard", headers=u_auth).get_json()["data"]["pass_plans"]}
+    assert "MONTHLY_STUDENT" not in public_codes
+    assert "MONTHLY_STUDENT" not in my_pass_codes
+    assert "MONTHLY_STUDENT" not in dash_codes
+
+    # Fund wallet 60.000 VND so balance is NOT the blocker — priority gate MUST block purchase & top-up!
+    ord_60k = client.post("/api/topups", headers=u_auth, json={"amount": 60000}).get_json()["data"]
+    client.post(
+        f"/api/admin/topups/{ord_60k['id']}/confirm",
+        headers=adm_auth,
+        json={"bank_reference": "STMT-SV-60K"},
+    )
+
+    blocked_buy = client.post("/api/passes/purchase", headers=u_auth, json={"plan_id": student_plan["id"]})
+    assert blocked_buy.status_code == 403
+    assert blocked_buy.get_json()["error"]["code"] == "PRIORITY_REQUIRED"
+
+    blocked_topup = client.post(
+        "/api/topups",
+        headers=u_auth,
+        json={"topup_channel": "AUTO", "purpose": "MONTHLY_PASS", "target_plan_id": student_plan["id"]},
+    )
+    assert blocked_topup.status_code == 403
+    assert blocked_topup.get_json()["error"]["code"] == "PRIORITY_REQUIRED"
+
+    # 3. Priority Registration REQUIRES proof image upload (Thẻ sinh viên / Portal screenshot)
+    missing_proof = client.post(
+        "/api/user/priority",
+        headers=u_auth,
+        json={
+            "priority_type": "STUDENT",
+            "id_card_code": "22115678",
+            "organization_name": "ĐH Bách Khoa TP.HCM",
+            "proof_note": "Sinh viên chính quy K22",
+        },
+    )
+    assert missing_proof.status_code == 400
+    assert missing_proof.get_json()["error"]["code"] == "PROOF_IMAGE_REQUIRED"
+
+    fake_png_data_uri = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    )
+    submit_ok = client.post(
+        "/api/user/priority",
+        headers=u_auth,
+        json={
+            "priority_type": "STUDENT",
+            "id_card_code": "22115678",
+            "organization_name": "ĐH Bách Khoa TP.HCM",
+            "proof_note": "Ảnh chụp thẻ sinh viên & portal BK",
+            "proof_image_data": fake_png_data_uri,
+        },
+    )
+    assert submit_ok.status_code == 201
+    prio_req_id = submit_ok.get_json()["data"]["id"]
+
+    # While still PENDING (unapproved), MONTHLY_STUDENT MUST remain hidden and locked!
+    pending_codes = {p["code"] for p in client.get("/api/passes/my", headers=u_auth).get_json()["data"]["plans"]}
+    assert "MONTHLY_STUDENT" not in pending_codes
+    still_blocked = client.post("/api/passes/purchase", headers=u_auth, json={"plan_id": student_plan["id"]})
+    assert still_blocked.status_code == 403
+
+    # 4. Admin inspects proof image & approves Priority Request -> unlocks MONTHLY_STUDENT!
+    adm_reqs = client.get("/api/admin/priority-requests?status=PENDING", headers=adm_auth).get_json()["data"]["priority_requests"]
+    target_req = next(r for r in adm_reqs if r["id"] == prio_req_id)
+    assert target_req["proof_image_data"].startswith("data:image/png;base64,")
+    assert target_req["vehicle_plate"] == "59-X3 686.88"
+
+    rev_res = client.post(
+        f"/api/admin/priority-requests/{prio_req_id}/review",
+        headers=adm_auth,
+        json={"action": "APPROVE", "admin_note": "Thẻ sinh viên hợp lệ"},
+    )
+    assert rev_res.status_code == 200
+    assert rev_res.get_json()["data"]["status"] == "APPROVED"
+
+    unlocked_codes = {p["code"] for p in client.get("/api/passes/my", headers=u_auth).get_json()["data"]["plans"]}
+    assert "MONTHLY_STUDENT" in unlocked_codes
+
+    # 5. Approved Student purchases MONTHLY_STUDENT (60.000 VND) and scans through Gate -> shows plate & priority!
+    buy_sv = client.post("/api/passes/purchase", headers=u_auth, json={"plan_id": student_plan["id"]})
+    assert buy_sv.status_code == 201
+    assert buy_sv.get_json()["data"]["balance_after"] == 0
+
+    m_tok = client.post("/api/qr/issue", headers=u_auth, json={"ticket_mode": "MONTHLY"}).get_json()["data"]["qr_token"]
+    scan_res = client.post("/api/qr/scan", headers=adm_auth, json={"qr_token": m_tok}).get_json()["data"]
+    assert scan_res["payment_method"] == "MONTHLY_PASS"
+    assert scan_res["amount"] == 0
+    assert scan_res["vehicle_plate"] == "59-X3 686.88"
+    assert scan_res["priority_label"] == "Học sinh / Sinh viên"

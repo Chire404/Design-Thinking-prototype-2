@@ -10,6 +10,7 @@ from backend.database import read_db, rows_to_dicts
 from backend.routes import api_success, client_ip, require_admin
 from backend.services.admin_service import (
     admin_adjust_wallet_balance,
+    admin_review_priority_request,
     get_admin_dashboard_metrics,
     get_admin_user_detail,
     get_bank_settings,
@@ -17,6 +18,7 @@ from backend.services.admin_service import (
     list_admin_topups,
     list_admin_transactions,
     list_audit_logs,
+    list_priority_requests_for_admin,
     list_support_requests,
     list_users_for_admin,
     resolve_support_request,
@@ -59,6 +61,29 @@ def users_list():
     status = request.args.get("status", "")
     users = list_users_for_admin(search=search, status_filter=status)
     return api_success({"users": users})
+
+
+@admin_bp.get("/priority-requests")
+@require_admin
+def priority_requests_list():
+    st = request.args.get("status", "")
+    return api_success({"priority_requests": list_priority_requests_for_admin(status_filter=st)})
+
+
+@admin_bp.post("/priority-requests/<int:req_id>/review")
+@require_admin
+def review_priority_req(req_id: int):
+    body = request.get_json(silent=True) or {}
+    approve = str(body.get("action") or "APPROVE").upper() == "APPROVE"
+    res = admin_review_priority_request(
+        admin_id=int(g.auth["user_id"]),
+        request_id=req_id,
+        approve=approve,
+        admin_note=body.get("admin_note", ""),
+        ip_address=client_ip(),
+    )
+    msg = "Đã phê duyệt hồ sơ đối tượng ưu tiên." if approve else "Đã từ chối hồ sơ đối tượng ưu tiên."
+    return api_success(res, msg)
 
 
 @admin_bp.get("/users/<int:user_id>")
@@ -247,7 +272,7 @@ def audit_logs():
 @admin_bp.get("/pass-plans")
 @require_admin
 def get_all_pass_plans():
-    return api_success({"plans": list_pass_plans(include_inactive=True)})
+    return api_success({"plans": list_pass_plans(include_inactive=True, is_admin_view=True)})
 
 
 @admin_bp.post("/pass-plans")

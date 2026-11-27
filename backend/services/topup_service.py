@@ -90,7 +90,7 @@ def create_topup_order(
         max_amt = int(settings["topup_max_amount"])
         expiry_min = int(settings["topup_expiry_minutes"])
 
-        user = conn.execute("SELECT id, status FROM users WHERE id = ?", (user_id,)).fetchone()
+        user = conn.execute("SELECT id, status, priority_status FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
             raise AppError("USER_NOT_FOUND", "Không tìm thấy người dùng.", 404)
         if user["status"] == "SUSPENDED":
@@ -105,6 +105,12 @@ def create_topup_order(
             )
             if not plan_row:
                 raise AppError("PLAN_NOT_FOUND", "Gói Vé Tháng không tồn tại hoặc đã ngừng cung cấp.", 404)
+            if int(plan_row.get("requires_priority") or 0) == 1 and user["priority_status"] != "APPROVED":
+                raise AppError(
+                    "PRIORITY_REQUIRED",
+                    "Gói vé ưu đãi HSSV chỉ dành cho tài khoản đã đăng ký và được Admin phê duyệt Đối tượng Ưu tiên!",
+                    403,
+                )
             amount = int(plan_row["price"])
             plan_id_val = int(plan_row["id"])
         else:

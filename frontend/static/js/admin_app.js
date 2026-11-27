@@ -60,7 +60,10 @@
       loadReconciliationOverview();
     }
     if (sec === "passes") loadAdminPassesSection();
-    if (sec === "users") loadAdminUsers();
+    if (sec === "users") {
+      loadAdminPriorityRequests();
+      loadAdminUsers();
+    }
     if (sec === "transactions") loadAdminTransactions();
     if (sec === "support") loadAdminSupport();
     if (sec === "settings") loadSettingsAll();
@@ -400,6 +403,8 @@
       title.textContent = isPass ? "MỞ CỔNG — VÉ THÁNG MIỄN PHÍ LƯỢT" : "MỞ CỔNG — TRỪ VÉ THÀNH CÔNG";
       details.innerHTML = `
         <div class="res-row"><span>HÀNH KHÁCH:</span><strong>${VP.escapeHtml(dataOrErr.user_name)}</strong></div>
+        <div class="res-row"><span>BIỂN SỐ XE:</span><strong class="mono">${VP.escapeHtml(dataOrErr.vehicle_plate || "Chưa đăng ký")}</strong></div>
+        ${dataOrErr.priority_label ? `<div class="res-row"><span>ĐỐI TƯỢNG:</span><strong>&#127891; ${VP.escapeHtml(dataOrErr.priority_label)}</strong></div>` : ""}
         <div class="res-row"><span>MÃ THẺ:</span><strong class="mono">${VP.escapeHtml(dataOrErr.card_number)}</strong></div>
         <div class="res-row"><span>PHƯƠNG THỨC:</span><strong>${isPass ? "VÉ THÁNG (" + VP.escapeHtml(dataOrErr.pass_code || "") + ")" : "VÍ SỐ DƯ"}</strong></div>
         <div class="res-row"><span>SỐ TIỀN TRỪ:</span><strong>${VP.escapeHtml(dataOrErr.amount_formatted)}</strong></div>
@@ -599,8 +604,136 @@
   });
 
   // =========================================================================
-  // 4. USER MANAGEMENT
+  // 4. USER MANAGEMENT & PRIORITY PASSENGER VERIFICATION
   // =========================================================================
+  let cachedPriorityRequests = [];
+
+  async function refreshPendingPriorityBadge() {
+    try {
+      const data = await VP.api("/api/admin/priority-requests?status=PENDING");
+      const cnt = (data.priority_requests || []).length;
+      const badge = document.getElementById("badge-pending-priority");
+      if (badge) {
+        badge.style.display = cnt > 0 ? "inline-block" : "none";
+        badge.textContent = cnt;
+      }
+    } catch (_) {}
+  }
+
+  async function loadAdminPriorityRequests() {
+    const st = document.getElementById("filter-priority-status")?.value || "";
+    try {
+      const data = await VP.api(`/api/admin/priority-requests?status=${encodeURIComponent(st)}`);
+      cachedPriorityRequests = data.priority_requests || [];
+      refreshPendingPriorityBadge();
+
+      const tbody = document.getElementById("tbody-admin-priority");
+      if (!tbody) return;
+      if (!cachedPriorityRequests.length) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#64748B;">Chưa có hồ sơ đăng ký đối tượng ưu tiên nào.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = cachedPriorityRequests
+        .map((r) => {
+          const canReview = r.status === "PENDING";
+          const plateHtml = r.vehicle_plate
+            ? `<div style="margin-top:3px;"><span class="plate-tag">${VP.escapeHtml(r.vehicle_plate)}</span></div>`
+            : "";
+          const hasImg = r.proof_image_data && r.proof_image_data.startsWith("data:image/");
+          return `
+            <tr>
+              <td>#${r.id}</td>
+              <td>
+                <strong>${VP.escapeHtml(r.user_name)}</strong> (@${VP.escapeHtml(r.username)})
+                <div class="mono adm-muted">${VP.escapeHtml(r.card_number || "")}</div>
+                ${plateHtml}
+              </td>
+              <td>
+                <strong>${VP.escapeHtml(r.priority_label)}</strong>
+                <div class="adm-muted">${VP.escapeHtml(r.organization_name)}</div>
+                ${r.proof_note ? `<div class="adm-muted" style="font-size:0.75rem;">Ghi chú: ${VP.escapeHtml(r.proof_note)}</div>` : ""}
+              </td>
+              <td class="mono">${VP.escapeHtml(r.id_card_code)}</td>
+              <td>
+                ${
+                  hasImg
+                    ? `<img src="${VP.escapeHtml(r.proof_image_data)}" alt="Minh chứng #${r.id}" class="proof-thumb" data-preview-proof="${r.id}" title="Nhấn để phóng to ảnh minh chứng" />`
+                    : `<span class="adm-muted">Không có ảnh</span>`
+                }
+              </td>
+              <td>
+                <span class="badge badge--${r.status}">${r.status}</span>
+                <div class="adm-muted" style="font-size:0.73rem;">${VP.formatDateTime(r.created_at)}</div>
+              </td>
+              <td>
+                ${
+                  canReview
+                    ? `<button type="button" class="adm-btn adm-btn--emerald adm-btn--sm" data-approve-prio="${r.id}">Phê duyệt</button>
+                       <button type="button" class="adm-btn adm-btn--danger adm-btn--sm" data-reject-prio="${r.id}">Từ chối</button>`
+                    : `<span class="adm-muted">${VP.escapeHtml(r.admin_note || "Đã xử lý")}</span>`
+                }
+              </td>
+            </tr>`;
+        })
+        .join("");
+
+      tbody.querySelectorAll("[data-preview-proof]").forEach((imgEl) => {
+        imgEl.onclick = () => {
+          const item = cachedPriorityRequests.find((x) => x.id === Number(imgEl.dataset.previewProof));
+          if (!item) return;
+          document.getElementById("proof-preview-title").textContent =
+            `Minh chứng #${item.id}: ${item.user_name} — ${item.priority_label} (${item.id_card_code})`;
+          document.getElementById("proof-preview-img").src = item.proof_image_data;
+          document.getElementById("modal-proof-preview").style.display = "flex";
+        };
+      });
+
+      tbody.querySelectorAll("[data-approve-prio]").forEach((btn) => {
+        btn.onclick = async () => {
+          const note = prompt("Ghi chú phê duyệt đối tượng ưu tiên (mở khóa Vé Tháng HSSV):", "Đã kiểm tra thẻ sinh viên / minh chứng hợp lệ");
+          if (note === null) return;
+          try {
+            await VP.api(`/api/admin/priority-requests/${btn.dataset.approvePrio}/review`, {
+              method: "POST",
+              body: { action: "APPROVE", admin_note: note },
+            });
+            VP.toast("Đã phê duyệt đối tượng ưu tiên và mở khóa gói Vé Tháng HSSV cho User!", "success");
+            loadAdminPriorityRequests();
+            loadAdminUsers();
+          } catch (err) {
+            VP.toast(err.message, "danger");
+          }
+        };
+      });
+
+      tbody.querySelectorAll("[data-reject-prio]").forEach((btn) => {
+        btn.onclick = async () => {
+          const note = prompt("Nhập lý do từ chối hồ sơ ưu tiên:", "Ảnh minh chứng bị mờ hoặc chưa đủ thông tin");
+          if (note === null) return;
+          try {
+            await VP.api(`/api/admin/priority-requests/${btn.dataset.rejectPrio}/review`, {
+              method: "POST",
+              body: { action: "REJECT", admin_note: note },
+            });
+            VP.toast("Đã từ chối hồ sơ đăng ký đối tượng ưu tiên.", "warning");
+            loadAdminPriorityRequests();
+            loadAdminUsers();
+          } catch (err) {
+            VP.toast(err.message, "danger");
+          }
+        };
+      });
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    }
+  }
+
+  const prioFilterEl = document.getElementById("filter-priority-status");
+  if (prioFilterEl) prioFilterEl.onchange = loadAdminPriorityRequests;
+  const prioRefreshBtn = document.getElementById("btn-refresh-priority");
+  if (prioRefreshBtn) prioRefreshBtn.onclick = loadAdminPriorityRequests;
+
   async function loadAdminUsers() {
     const search = document.getElementById("filter-user-search").value.trim();
     const status = document.getElementById("filter-user-status").value;
@@ -610,15 +743,26 @@
       );
       const tbody = document.getElementById("tbody-admin-users");
       if (!data.users.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:#64748B;">Không tìm thấy hành khách nào.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#64748B;">Không tìm thấy hành khách nào.</td></tr>`;
         return;
       }
       tbody.innerHTML = data.users
-        .map(
-          (u) => `
+        .map((u) => {
+          const plateBadge = u.vehicle_plate
+            ? `<span class="plate-tag">${VP.escapeHtml(u.vehicle_plate)}</span>`
+            : `<span class="adm-muted">Chưa ĐK biển số</span>`;
+          const prioBadge =
+            u.priority_status === "APPROVED"
+              ? `<div style="margin-top:4px;"><span class="badge badge--APPROVED">&#127891; ${VP.escapeHtml(u.priority_label)}</span></div>`
+              : u.priority_status === "PENDING"
+              ? `<div style="margin-top:4px;"><span class="badge badge--PENDING">Chờ duyệt ƯT</span></div>`
+              : "";
+
+          return `
           <tr>
             <td>#${u.id}</td>
             <td><strong>${VP.escapeHtml(u.full_name)}</strong><br/><span class="adm-muted">${VP.escapeHtml(u.email)} (@${VP.escapeHtml(u.username)})</span></td>
+            <td>${plateBadge}${prioBadge}</td>
             <td class="mono">${VP.escapeHtml(u.card_number)}</td>
             <td><strong>${VP.escapeHtml(u.balance_formatted)}</strong></td>
             <td><span class="badge badge--${u.card_status}">${u.card_status}</span></td>
@@ -631,8 +775,8 @@
                   : `<button class="adm-btn adm-btn--emerald adm-btn--sm" data-activate-user="${u.id}">Mở khóa</button>`
               }
             </td>
-          </tr>`
-        )
+          </tr>`;
+        })
         .join("");
 
       tbody.querySelectorAll("[data-view-user]").forEach((b) => {
@@ -681,6 +825,8 @@
           <div style="padding:12px;background:#F8FAFC;border-radius:12px;">
             <div><strong>Mã thẻ:</strong> <span class="mono">${VP.escapeHtml(d.card.card_number)}</span></div>
             <div><strong>Trạng thái thẻ:</strong> <span class="badge badge--${d.card.status}">${d.card.status}</span></div>
+            <div><strong>Biển số xe:</strong> <span class="mono">${VP.escapeHtml(d.user.vehicle_plate || "Chưa đăng ký")}</span></div>
+            <div><strong>Đối tượng:</strong> ${VP.escapeHtml(d.user.priority_label)} (${VP.escapeHtml(d.user.priority_status || "NONE")})</div>
             <div><strong>Email:</strong> ${VP.escapeHtml(d.user.email)}</div>
             <div><strong>SĐT:</strong> ${VP.escapeHtml(d.user.phone || "—")}</div>
           </div>
@@ -1170,6 +1316,7 @@
           <div class="feed-item">
             <div>
               <strong>${VP.escapeHtml(p.name)}</strong> <span class="mono">(${VP.escapeHtml(p.code)})</span>
+              ${p.requires_priority ? `<span class="badge badge--PRIORITY_LOCK" style="margin-left:6px;">&#128274; Chỉ Ưu Tiên / HSSV</span>` : ""}
               <div class="adm-muted">${VP.escapeHtml(p.price_formatted)} &bull; ${p.duration_days} ngày &bull; ${p.max_trips ? p.max_trips + " lượt" : "Không giới hạn lượt"}</div>
             </div>
             <div style="display:flex;align-items:center;gap:6px;">
@@ -1192,6 +1339,8 @@
           document.getElementById("pp-max-trips").value = p.max_trips || "";
           document.getElementById("pp-active").value = String(p.is_active ? 1 : 0);
           document.getElementById("pp-desc").value = p.description || "";
+          const reqPrioEl = document.getElementById("pp-requires-priority");
+          if (reqPrioEl) reqPrioEl.checked = Boolean(p.requires_priority);
         };
       });
     } catch (err) {
@@ -1202,6 +1351,8 @@
   document.getElementById("btn-reset-pp-form").onclick = () => {
     document.getElementById("form-pass-plan").reset();
     document.getElementById("pp-id").value = "";
+    const reqPrioEl = document.getElementById("pp-requires-priority");
+    if (reqPrioEl) reqPrioEl.checked = false;
   };
 
   document.getElementById("form-pass-plan").addEventListener("submit", async (e) => {
@@ -1219,6 +1370,7 @@
           duration_days: Number(document.getElementById("pp-days").value),
           max_trips: document.getElementById("pp-max-trips").value || null,
           is_active: Number(document.getElementById("pp-active").value),
+          requires_priority: document.getElementById("pp-requires-priority")?.checked ? 1 : 0,
           description: document.getElementById("pp-desc").value.trim(),
         },
       });
@@ -1288,8 +1440,14 @@
     es.addEventListener("scan_completed", () => {
       if (state.section === "dashboard") loadDashboard();
     });
+    es.addEventListener("priority_submitted", () => {
+      VP.toast("Có hành khách vừa gửi hồ sơ đăng ký Đối tượng Ưu tiên!", "info");
+      refreshPendingPriorityBadge();
+      if (state.section === "users") loadAdminPriorityRequests();
+    });
   }
 
   // Initial load
   loadDashboard();
+  refreshPendingPriorityBadge();
 })();

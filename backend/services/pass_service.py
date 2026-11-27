@@ -208,14 +208,33 @@ def get_active_pass_readonly(conn: sqlite3.Connection, user_id: int) -> dict | N
     return _enrich_pass_dict(row)
 
 
-def list_pass_plans(include_inactive: bool = False) -> list[dict]:
+def list_pass_plans(include_inactive: bool = False, user_id: int | None = None, is_admin_view: bool = False) -> list[dict]:
+    """List Monthly/Weekly Pass plans.
+
+    For non-admin views, plans with `requires_priority = 1` (e.g. Student Discount Pass) are STRICTLY HIDDEN
+    unless `user_id` has `priority_status == 'APPROVED'`.
+    """
     with read_db() as conn:
-        sql = "SELECT * FROM pass_plans"
+        user_priority_approved = False
+        if user_id is not None:
+            u_row = conn.execute("SELECT priority_status FROM users WHERE id = ?", (int(user_id),)).fetchone()
+            if u_row and ("priority_status" in u_row.keys()) and u_row["priority_status"] == "APPROVED":
+                user_priority_approved = True
+
+        conditions: list[str] = []
         if not include_inactive:
-            sql += " WHERE is_active = 1"
+            conditions.append("is_active = 1")
+        if not is_admin_view and not user_priority_approved:
+            conditions.append("COALESCE(requires_priority, 0) = 0")
+
+        sql = "SELECT * FROM pass_plans"
+        if conditions:
+            sql += " WHERE " + " AND ".join(conditions)
         sql += " ORDER BY price ASC, id ASC"
         rows = rows_to_dicts(conn.execute(sql).fetchall())
+
     for r in rows:
+        r["requires_priority"] = int(r.get("requires_priority") or 0)
         r["price_formatted"] = format_vnd(r["price"])
         r["daily_cost_formatted"] = format_vnd(max(1, round(int(r["price"]) / max(1, int(r["duration_days"])))))
     return rows
@@ -239,7 +258,7 @@ def get_user_passes_overview(user_id: int) -> dict:
     return {
         "active_pass": active,
         "passes": history,
-        "plans": list_pass_plans(include_inactive=False),
+        "plans": list_pass_plans(include_inactive=False, user_id=user_id),
     }
 
 
@@ -262,7 +281,7 @@ def purchase_monthly_pass(
 
     with atomic_transaction() as conn:
         expire_and_autorenew_passes_in_tx(conn, user_id=user_id)
-        user = conn.execute("SELECT id, status, full_name FROM users WHERE id = ?", (user_id,)).fetchone()
+        user = conn.execute("SELECT id, status, full_name, priority_status FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user:
             raise AppError("USER_NOT_FOUND", "Không tìm thấy người dùng.", 404)
         if user["status"] != "ACTIVE":
@@ -271,6 +290,13 @@ def purchase_monthly_pass(
         plan = row_to_dict(conn.execute("SELECT * FROM pass_plans WHERE id = ?", (int(plan_id),)).fetchone())
         if not plan or not int(plan["is_active"]):
             raise AppError("PLAN_NOT_FOUND", "Gói Vé Tháng không tồn tại hoặc đã ngừng cung cấp.", 404)
+
+        if int(plan.get("requires_priority") or 0) == 1 and user["priority_status"] != "APPROVED":
+            raise AppError(
+                "PRIORITY_REQUIRED",
+                "Gói vé ưu đãi này chỉ dành cho tài khoản đã đăng ký và được Admin phê duyệt Đối tượng Ưu tiên (HSSV/...).",
+                403,
+            )
 
         wallet = conn.execute("SELECT * FROM wallets WHERE user_id = ?", (user_id,)).fetchone()
         card = conn.execute("SELECT * FROM virtual_cards WHERE user_id = ?", (user_id,)).fetchone()
@@ -472,6 +498,7 @@ def admin_upsert_pass_plan(admin_id: int, payload: dict, ip_address: str = "") -
     raw_max_trips = payload.get("max_trips")
     max_trips = int(raw_max_trips) if raw_max_trips not in (None, "", 0, "0") else None
     is_active = 1 if payload.get("is_active", True) in (True, 1, "1", "true") else 0
+    requires_priority = 1 if payload.get("requires_priority", False) in (True, 1, "1", "true") else 0
 
     if not code or len(name) < 3 or duration_days < 1 or duration_days > 365:
         raise AppError("INVALID_PLAN", "Mã gói, tên gói (>=3 ký tự) và thời hạn (1–365 ngày) không hợp lệ.", 400)
@@ -483,10 +510,10 @@ def admin_upsert_pass_plan(admin_id: int, payload: dict, ip_address: str = "") -
                 """
                 UPDATE pass_plans
                 SET code = ?, name = ?, description = ?, price = ?, duration_days = ?,
-                    max_trips = ?, badge_text = ?, is_active = ?, updated_at = ?
+                    max_trips = ?, badge_text = ?, is_active = ?, requires_priority = ?, updated_at = ?
                 WHERE id = ?
                 """,
-                (code, name, description, price, duration_days, max_trips, badge_text, is_active, now_iso, int(plan_id)),
+                (code, name, description, price, duration_days, max_trips, badge_text, is_active, requires_priority, now_iso, int(plan_id)),
             )
             target_id = int(plan_id)
             action = "UPDATE_PASS_PLAN"
@@ -494,10 +521,10 @@ def admin_upsert_pass_plan(admin_id: int, payload: dict, ip_address: str = "") -
             cur = conn.execute(
                 """
                 INSERT INTO pass_plans (
-                    code, name, description, price, duration_days, max_trips, badge_text, is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    code, name, description, price, duration_days, max_trips, badge_text, is_active, requires_priority, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (code, name, description, price, duration_days, max_trips, badge_text, is_active, now_iso, now_iso),
+                (code, name, description, price, duration_days, max_trips, badge_text, is_active, requires_priority, now_iso, now_iso),
             )
             target_id = int(cur.lastrowid)
             action = "CREATE_PASS_PLAN"

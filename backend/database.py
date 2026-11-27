@@ -163,26 +163,27 @@ def run_migrations(db_path: Path | str | None = None) -> list[str]:
         conn.execute(
             """
             INSERT OR IGNORE INTO pass_plans (
-                id, code, name, description, price, duration_days, max_trips, badge_text, is_active, created_at, updated_at
+                id, code, name, description, price, duration_days, max_trips, badge_text, is_active, requires_priority, created_at, updated_at
             ) VALUES
             (
                 1, 'MONTHLY_STANDARD', 'Vé Tháng Tiêu Chuẩn (30 Ngày)',
                 'Đi lại không giới hạn số lượt quét QR trong 30 ngày liên tục. Tiết kiệm tối ưu cho người đi làm hằng ngày.',
-                100000, 30, NULL, 'KHÔNG GIỚI HẠN LƯỢT', 1, ?, ?
+                100000, 30, NULL, 'KHÔNG GIỚI HẠN LƯỢT', 1, 0, ?, ?
             ),
             (
                 2, 'MONTHLY_STUDENT', 'Vé Tháng Ưu Đãi HSSV (30 Ngày)',
-                'Gói vé tháng ưu đãi dành cho học sinh, sinh viên — quét cổng 0 VNĐ không giới hạn lượt trong 30 ngày.',
-                60000, 30, NULL, 'ƯU ĐÃI SINH VIÊN', 1, ?, ?
+                'Gói vé tháng ưu đãi dành riêng cho đối tượng HSSV / Ưu tiên đã xác minh — quét cổng 0 VNĐ không giới hạn lượt.',
+                60000, 30, NULL, 'ƯU ĐÃI ĐỐI TƯỢNG ƯU TIÊN', 1, 1, ?, ?
             ),
             (
                 3, 'WEEKLY_COMMUTER', 'Vé Tuần Linh Hoạt (7 Ngày)',
                 'Trọn gói 7 ngày di chuyển không giới hạn số lần quét cổng.',
-                30000, 7, NULL, 'GÓI 7 NGÀY', 1, ?, ?
+                30000, 7, NULL, 'GÓI 7 NGÀY', 1, 0, ?, ?
             );
             """,
             (now, now, now, now, now, now),
         )
+        conn.execute("UPDATE pass_plans SET requires_priority = 1 WHERE code = 'MONTHLY_STUDENT';")
         conn.execute(
             """
             INSERT OR IGNORE INTO bank_sync_settings (

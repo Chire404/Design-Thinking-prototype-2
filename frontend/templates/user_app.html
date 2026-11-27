@@ -6,11 +6,11 @@
   <meta name="theme-color" content="#0B192C" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>{{ app_name }} — Thẻ Vé Lượt, Vé Tháng &amp; Ví Điện Tử</title>
+  <title>{{ app_name }} — Thẻ Vé Điện Tử &amp; Ví Giao Thông</title>
   <link rel="manifest" href="/manifest.json" />
   <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg" />
   <link rel="apple-touch-icon" href="/static/icons/icon-192.svg" />
-  <link rel="stylesheet" href="/static/css/user.css?v=2.5" />
+  <link rel="stylesheet" href="/static/css/user.css?v=2.6" />
 </head>
 <body>
   <script>
@@ -18,7 +18,7 @@
   </script>
 
   <div class="user-layout">
-    <!-- DESKTOP SIDEBAR RAIL -->
+    <!-- DESKTOP SIDEBAR RAIL (MERGED TICKET NAV ITEM) -->
     <aside class="desktop-rail" aria-label="Điều hướng chính">
       <div class="rail-brand">
         <img src="/static/icons/logo.svg" alt="VeloPass" class="rail-brand__logo" />
@@ -32,20 +32,17 @@
         <button class="nav-item active" data-nav="home">
           <span class="nav-icon">&#8962;</span><span>Trang chủ</span>
         </button>
-        <button class="nav-item" data-nav="single-ticket">
-          <span class="nav-icon">&#9638;</span><span>Vé Lượt (4.000đ)</span>
-        </button>
-        <button class="nav-item" data-nav="monthly-pass">
-          <span class="nav-icon">&#127915;</span><span>Vé Tháng (Monthly Pass)</span>
+        <button class="nav-item" data-nav="tickets">
+          <span class="nav-icon">&#9638;</span><span>Thẻ của tôi (Lượt &amp; Tháng)</span>
         </button>
         <button class="nav-item" data-nav="topup">
-          <span class="nav-icon">&#43;</span><span>Nạp tiền (Tự động / Thủ công)</span>
+          <span class="nav-icon">&#43;</span><span>Nạp tiền</span>
         </button>
         <button class="nav-item" data-nav="history">
-          <span class="nav-icon">&#8635;</span><span>Lịch sử giao dịch</span>
+          <span class="nav-icon">&#8635;</span><span>Lịch sử</span>
         </button>
         <button class="nav-item" data-nav="account">
-          <span class="nav-icon">&#9787;</span><span>Tài khoản</span>
+          <span class="nav-icon">&#9787;</span><span>Tài khoản &amp; Ưu tiên</span>
         </button>
       </nav>
 
@@ -65,7 +62,10 @@
           <img src="/static/icons/logo.svg" alt="VeloPass" class="topbar-mobile-logo" />
           <div>
             <div class="greeting-sub">Xin chào hành khách,</div>
-            <div class="greeting-name" id="ui-user-fullname">{{ session_user.full_name }}</div>
+            <div class="greeting-name">
+              <span id="ui-user-fullname">{{ session_user.full_name }}</span>
+              <span id="ui-header-prio-chip" class="prio-mini-chip" style="display:none;"></span>
+            </div>
           </div>
         </div>
         <div class="topbar-actions">
@@ -83,7 +83,7 @@
       </header>
 
       <!-- ============================================================ -->
-      <!-- VIEW 1: TRANG CHỦ (HOME — CARD, PASS TOPUP & DUAL QR TABS)   -->
+      <!-- VIEW 1: TRANG CHỦ (HOME)                                     -->
       <!-- ============================================================ -->
       <section class="app-view active" id="view-home">
         <div class="home-grid">
@@ -111,14 +111,18 @@
                 <div class="transit-card__trips" id="ui-card-trips">Vé lượt tiêu chuẩn: 4.000 VNĐ / lượt</div>
               </div>
 
-              <div class="transit-card__meta">
+              <div class="transit-card__meta transit-card__meta--4">
                 <div>
-                  <div class="meta-label">MÃ THẺ ĐIỆN TỬ</div>
-                  <div class="meta-mono" id="ui-card-number">VP-••••-••••-••••</div>
+                  <div class="meta-label">MÃ THẺ</div>
+                  <div class="meta-mono" id="ui-card-number">VP-••••-••••</div>
                 </div>
                 <div>
                   <div class="meta-label">CHỦ THẺ</div>
                   <div class="meta-val" id="ui-card-holder">{{ session_user.full_name }}</div>
+                </div>
+                <div>
+                  <div class="meta-label">BIỂN SỐ XE</div>
+                  <div class="meta-mono" id="ui-card-plate">Chưa ĐK</div>
                 </div>
                 <div>
                   <div class="meta-label">PHÁT HÀNH</div>
@@ -127,19 +131,15 @@
               </div>
             </div>
 
-            <!-- QUICK ACTION BAR (SEPARATED SINGLE TICKET & MONTHLY PASS) -->
-            <div class="quick-actions-card quick-actions-card--4">
-              <button class="qa-btn qa-btn--primary" data-goto="single-ticket">
+            <!-- QUICK ACTION BAR -->
+            <div class="quick-actions-card">
+              <button class="qa-btn qa-btn--primary" data-goto-ticket="SINGLE">
                 <span class="qa-btn__icon">&#9638;</span>
-                <span>Vé Lượt</span>
-              </button>
-              <button class="qa-btn qa-btn--gold" data-goto="monthly-pass">
-                <span class="qa-btn__icon">&#127915;</span>
-                <span>Vé Tháng</span>
+                <span>Thẻ Vé QR</span>
               </button>
               <button class="qa-btn qa-btn--accent" data-goto="topup">
                 <span class="qa-btn__icon">&#43;</span>
-                <span>Nạp Ví</span>
+                <span>Nạp Tiền</span>
               </button>
               <button class="qa-btn" data-goto="history">
                 <span class="qa-btn__icon">&#8635;</span>
@@ -147,7 +147,7 @@
               </button>
             </div>
 
-            <!-- NEW REQUIREMENT: DEDICATED MONTHLY PASS TOP-UP MODULE RIGHT ON HOME PAGE -->
+            <!-- HOME MONTHLY PASS TOP-UP MODULE -->
             <div class="surface-card home-pass-topup-card">
               <div class="section-head">
                 <div>
@@ -155,11 +155,11 @@
                   <h2 class="section-title" style="margin-top:4px;">Top-up &amp; Gia Hạn Vé Tháng</h2>
                   <p class="section-sub" id="home-pass-summary-text">Đi không giới hạn lượt quét cổng 0 VNĐ suốt 30 ngày</p>
                 </div>
-                <button type="button" class="vp-link-btn" data-goto="monthly-pass">Mở tab Vé Tháng &rarr;</button>
+                <button type="button" class="vp-link-btn" data-goto-ticket="MONTHLY">Mở Vé Tháng &rarr;</button>
               </div>
 
               <div class="vp-field" style="margin-bottom:10px;">
-                <label for="home-pass-plan-select">Chọn gói Vé Tháng muốn nạp / kích hoạt</label>
+                <label for="home-pass-plan-select">Chọn gói Vé Tháng khả dụng cho tài khoản của bạn</label>
                 <select id="home-pass-plan-select"></select>
               </div>
 
@@ -176,7 +176,7 @@
               </div>
             </div>
 
-            <!-- HOME QR PREVIEW WITH EXPLICIT 2-TAB SWITCH (VÉ LƯỢT vs VÉ THÁNG) -->
+            <!-- HOME QR PREVIEW -->
             <div class="surface-card qr-home-dock">
               <div class="ticket-mode-tabs" role="tablist">
                 <button type="button" class="tmode-tab active" data-home-qrmode="SINGLE">
@@ -265,15 +265,21 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 2: TAB VÉ LƯỢT RIÊNG BIỆT (SINGLE-RIDE TICKET TAB)      -->
+      <!-- VIEW 2: THẺ CỦA TÔI (UNIFIED VIEW WITH BLUE-BOX 2-TAB BAR)   -->
       <!-- ============================================================ -->
-      <section class="app-view" id="view-single-ticket">
-        <div class="card-pass-wrapper">
-          <div class="ticket-mode-tabs" style="margin-bottom:14px;">
-            <button type="button" class="tmode-tab active" data-goto="single-ticket">&#9638; Tab Vé Lượt (4.000đ)</button>
-            <button type="button" class="tmode-tab" data-goto="monthly-pass">&#127915; Tab Vé Tháng (Pass)</button>
-          </div>
+      <section class="app-view" id="view-tickets">
+        <!-- KEPT BLUE BOX: CLEAN 2-TAB SWITCHER AT TOP -->
+        <div class="ticket-mode-tabs" style="max-width:520px;margin:0 auto 16px;" role="tablist">
+          <button type="button" class="tmode-tab active" data-ticket-subtab="SINGLE">
+            &#9638; Tab Vé Lượt (4.000đ)
+          </button>
+          <button type="button" class="tmode-tab" data-ticket-subtab="MONTHLY">
+            &#127915; Tab Vé Tháng (Pass)
+          </button>
+        </div>
 
+        <!-- SUB-TAB 1: VÉ LƯỢT -->
+        <div id="subtab-panel-single" class="card-pass-wrapper">
           <div class="surface-card pass-ticket">
             <div class="pass-ticket__header">
               <div>
@@ -289,7 +295,7 @@
               </div>
               <div class="qr-timer-bar"><div id="single-qr-progress" class="qr-timer-fill"></div></div>
               <div class="pass-qr-caption">
-                <span id="single-qr-countdown">Tự động đổi mã sau -- giây</span>
+                <span id="single-qr-countdown">Tự làm mới sau --s</span>
                 <button type="button" class="vp-btn vp-btn--sm vp-btn--outline" id="btn-single-refresh">
                   &#8635; Cấp mã mới
                 </button>
@@ -319,84 +325,78 @@
                 <strong id="single-fare">4.000 VNĐ / lượt</strong>
               </div>
               <div>
-                <span class="meta-label">Số lượt khả dụng</span>
-                <strong id="single-remaining-trips">0 lượt</strong>
+                <span class="meta-label">Biển số xe đăng ký</span>
+                <strong class="meta-mono" id="single-plate">Chưa cập nhật</strong>
               </div>
             </div>
 
             <div class="pass-security-note">
-              Đây là <strong>mã QR dành riêng cho Vé Lượt</strong>. Mỗi lần cổng Admin quét thành công sẽ trừ đúng <strong>4.000 VNĐ</strong> từ Ví số dư và xoay sang mã QR mới.
+              Mỗi lần cổng Admin quét thành công sẽ trừ đúng <strong>4.000 VNĐ</strong> từ Ví số dư và tự động đổi sang mã QR mới.
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- ============================================================ -->
-      <!-- VIEW 3: TAB VÉ THÁNG RIÊNG BIỆT (MONTHLY PASS TAB)           -->
-      <!-- ============================================================ -->
-      <section class="app-view" id="view-monthly-pass">
-        <div class="ticket-mode-tabs" style="max-width:480px;margin:0 auto 14px;">
-          <button type="button" class="tmode-tab" data-goto="single-ticket">&#9638; Tab Vé Lượt (4.000đ)</button>
-          <button type="button" class="tmode-tab active" data-goto="monthly-pass">&#127915; Tab Vé Tháng (Pass)</button>
-        </div>
-
-        <div class="topup-grid">
-          <!-- LEFT COLUMN: MONTHLY PASS QR CARD & ACTIVE SUBSCRIPTION -->
-          <div>
-            <div class="surface-card pass-ticket pass-ticket--monthly">
-              <div class="pass-ticket__header">
-                <div>
-                  <span class="pass-chip pass-chip--gold">MONTHLY PASS &bull; 0 VNĐ / LƯỢT QUÉT</span>
-                  <h2 class="section-title" style="margin-top:6px;">Thẻ QR Vé Tháng Qua Cổng</h2>
+        <!-- SUB-TAB 2: VÉ THÁNG (MONTHLY PASS) -->
+        <div id="subtab-panel-monthly" style="display:none;">
+          <div class="topup-grid">
+            <div>
+              <div class="surface-card pass-ticket pass-ticket--monthly">
+                <div class="pass-ticket__header">
+                  <div>
+                    <span class="pass-chip pass-chip--gold">MONTHLY PASS &bull; 0 VNĐ / LƯỢT QUÉT</span>
+                    <h2 class="section-title" style="margin-top:6px;">Thẻ QR Vé Tháng Qua Cổng</h2>
+                  </div>
+                  <span class="status-pill status-pill--SUCCESS" id="monthly-status-badge">CHƯA ĐĂNG KÝ</span>
                 </div>
-                <span class="status-pill status-pill--SUCCESS" id="monthly-status-badge">CHƯA ĐĂNG KÝ</span>
+
+                <div class="pass-qr-container" id="monthly-qr-active" style="display:none;">
+                  <div class="qr-frame qr-frame--lg qr-frame--gold">
+                    <img id="monthly-qr-img" src="" alt="Mã QR Vé Tháng" class="qr-img qr-img--lg" />
+                  </div>
+                  <div class="qr-timer-bar"><div id="monthly-qr-progress" class="qr-timer-fill"></div></div>
+                  <div class="pass-qr-caption">
+                    <span id="monthly-qr-countdown">Tự làm mới sau --s</span>
+                    <button type="button" class="vp-btn vp-btn--sm vp-btn--outline" id="btn-monthly-refresh">
+                      &#8635; Cấp mã mới
+                    </button>
+                  </div>
+                </div>
+
+                <div class="qr-locked-state" id="monthly-qr-locked">
+                  <div class="qr-locked-icon">&#127915;</div>
+                  <h3>Bạn Chưa Có Vé Tháng Hiệu Lực</h3>
+                  <p>Đăng ký hoặc nạp gói Vé Tháng bên cạnh để mở mã QR đi lại không giới hạn (0 VNĐ/lượt)!</p>
+                </div>
+
+                <div class="pass-divider"></div>
+                <div id="ui-active-pass-body"></div>
               </div>
 
-              <div class="pass-qr-container" id="monthly-qr-active" style="display:none;">
-                <div class="qr-frame qr-frame--lg qr-frame--gold">
-                  <img id="monthly-qr-img" src="" alt="Mã QR Vé Tháng" class="qr-img qr-img--lg" />
-                </div>
-                <div class="qr-timer-bar"><div id="monthly-qr-progress" class="qr-timer-fill"></div></div>
-                <div class="pass-qr-caption">
-                  <span id="monthly-qr-countdown">Tự động đổi mã sau -- giây</span>
-                  <button type="button" class="vp-btn vp-btn--sm vp-btn--outline" id="btn-monthly-refresh">
-                    &#8635; Cấp mã mới
-                  </button>
-                </div>
+              <div class="surface-card">
+                <h2 class="section-title" style="margin-bottom:10px;">Lịch Sử Vé Tháng Đã Đăng Ký</h2>
+                <div id="ui-pass-history-list" class="tx-compact-list"></div>
               </div>
-
-              <div class="qr-locked-state" id="monthly-qr-locked">
-                <div class="qr-locked-icon">&#127915;</div>
-                <h3>Bạn Chưa Có Vé Tháng Hiệu Lực</h3>
-                <p>Đăng ký hoặc nạp gói Vé Tháng bên cạnh để mở mã QR đi lại không giới hạn (0 VNĐ/lượt)!</p>
-              </div>
-
-              <div class="pass-divider"></div>
-              <div id="ui-active-pass-body"></div>
             </div>
 
             <div class="surface-card">
-              <h2 class="section-title" style="margin-bottom:10px;">Lịch Sử Vé Tháng Đã Đăng Ký</h2>
-              <div id="ui-pass-history-list" class="tx-compact-list"></div>
+              <h2 class="section-title">Các Gói Vé Tháng &amp; Vé Tuần</h2>
+              <p class="section-sub" style="margin-bottom:14px;">
+                Số dư Ví hiện có: <strong id="pass-wallet-balance" class="text-primary">0 VNĐ</strong>.
+              </p>
+              <div id="ui-pass-plans-list" class="pass-plans-stack"></div>
+              <div id="ui-priority-promo-hint" class="vp-alert vp-alert--warning" style="display:none;margin-top:14px;margin-bottom:0;">
+                <strong>Bạn thuộc diện Học sinh / Sinh viên hoặc Ưu tiên?</strong><br/>
+                Đăng ký minh chứng tại mục <button type="button" class="vp-link-btn" data-goto="account">Tài khoản &rarr; Đối tượng ưu tiên</button> để mở khóa gói ưu đãi dành riêng!
+              </div>
             </div>
-          </div>
-
-          <!-- RIGHT COLUMN: BUY OR TOP-UP MONTHLY PASS PLANS -->
-          <div class="surface-card">
-            <h2 class="section-title">Các Gói Vé Tháng &amp; Vé Tuần</h2>
-            <p class="section-sub" style="margin-bottom:14px;">
-              Số dư Ví hiện có: <strong id="pass-wallet-balance" class="text-primary">0 VNĐ</strong>. Bạn có thể mua ngay từ Ví hoặc tạo đơn nạp tiền riêng cho gói Vé Tháng!
-            </p>
-            <div id="ui-pass-plans-list" class="pass-plans-stack"></div>
           </div>
         </div>
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 4: NẠP TIỀN — TÁCH RÕ 2 MỤC: TỰ ĐỘNG vs THỦ CÔNG        -->
+      <!-- VIEW 3: NẠP TIỀN — TÁCH RÕ 2 MỤC: TỰ ĐỘNG vs THỦ CÔNG        -->
       <!-- ============================================================ -->
       <section class="app-view" id="view-topup">
-        <!-- EXPLICIT 2-TAB TOP-UP CHANNEL SELECTOR -->
         <div class="topup-channel-tabs" role="tablist">
           <button type="button" class="tchan-tab active" data-topup-chan="AUTO">
             <span class="tchan-badge tchan-badge--auto">TỰ ĐỘNG</span>
@@ -411,7 +411,6 @@
         </div>
 
         <div class="topup-grid">
-          <!-- MỤC 1: REQUEST NẠP TIỀN TỰ ĐỘNG (BANK TRANSFER / VIETQR) -->
           <div class="surface-card" id="panel-topup-auto">
             <span class="pass-chip">AUTO BANK RECONCILIATION</span>
             <h2 class="section-title" style="margin-top:4px;">Request Nạp Tiền Tự Động (Bank Transfer)</h2>
@@ -455,12 +454,11 @@
             </form>
           </div>
 
-          <!-- MỤC 2: REQUEST NẠP TIỀN THỦ CÔNG (CASH, COUNTER, OTHER — CẦN ADMIN DUYỆT) -->
           <div class="surface-card" id="panel-topup-manual" style="display:none;">
             <span class="pass-chip pass-chip--gold">MANUAL ADMIN APPROVAL</span>
             <h2 class="section-title" style="margin-top:4px;">Request Nạp Tiền Thủ Công (Cần Admin Duyệt)</h2>
             <p class="section-sub" style="margin-bottom:14px;">
-              Dành cho nộp <strong>Tiền mặt tại quầy vé</strong>, ví điện tử ngoài hoặc ủy nhiệm chi cần Quản trị viên kiểm tra và phê duyệt thủ công.
+              Dành cho nộp <strong>Tiền mặt tại quầy vé</strong>, ví điện tử ngoài hoặc biên lai cần Quản trị viên phê duyệt thủ công.
             </p>
 
             <form id="form-create-topup-manual">
@@ -503,7 +501,6 @@
             </form>
           </div>
 
-          <!-- ACTIVE TOPUP REQUEST DETAILS -->
           <div class="surface-card" id="active-topup-card" style="display:none;">
             <div class="section-head">
               <div>
@@ -529,11 +526,11 @@
                 <span>Loại Request</span>
                 <strong id="topup-channel-label">—</strong>
               </div>
-              <div class="bank-row" id="row-topup-purpose">
+              <div class="bank-row">
                 <span>Mục đích nạp</span>
                 <strong id="topup-purpose-label">Ví Vé Lượt</strong>
               </div>
-              <div class="bank-row" id="row-bank-name">
+              <div class="bank-row">
                 <span>Kênh / Ngân hàng</span>
                 <strong id="topup-bank-name">—</strong>
               </div>
@@ -582,7 +579,7 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 5: LỊCH SỬ CÁ NHÂN                                      -->
+      <!-- VIEW 4: LỊCH SỬ CÁ NHÂN                                      -->
       <!-- ============================================================ -->
       <section class="app-view" id="view-history">
         <div class="surface-card">
@@ -599,89 +596,154 @@
       </section>
 
       <!-- ============================================================ -->
-      <!-- VIEW 6: TÀI KHOẢN & HỖ TRỢ                                   -->
+      <!-- VIEW 5: TÀI KHOẢN (BIỂN SỐ XE + ĐĂNG KÝ ĐỐI TƯỢNG ƯU TIÊN)   -->
       <!-- ============================================================ -->
       <section class="app-view" id="view-account">
         <div class="topup-grid">
-          <div class="surface-card">
-            <h2 class="section-title" style="margin-bottom:14px;">Hồ Sơ Cá Nhân</h2>
-            <form id="form-profile">
-              <div class="vp-field">
-                <label>Tên đăng nhập</label>
-                <input type="text" id="acc-username" disabled />
-              </div>
-              <div class="vp-field">
-                <label>Email</label>
-                <input type="email" id="acc-email" disabled />
-              </div>
-              <div class="vp-field">
-                <label for="acc-fullname">Họ và tên</label>
-                <input type="text" id="acc-fullname" required minlength="2" maxlength="80" />
-              </div>
-              <div class="vp-field">
-                <label for="acc-phone">Số điện thoại</label>
-                <input type="tel" id="acc-phone" />
-              </div>
-              <button type="submit" class="vp-btn vp-btn--primary vp-btn--block">Lưu thay đổi hồ sơ</button>
-            </form>
+          <div>
+            <!-- HỒ SƠ CÁ NHÂN & BIỂN SỐ XE -->
+            <div class="surface-card">
+              <h2 class="section-title" style="margin-bottom:14px;">Hồ Sơ Cá Nhân &amp; Phương Tiện</h2>
+              <form id="form-profile">
+                <div class="vp-grid-2">
+                  <div class="vp-field">
+                    <label>Tên đăng nhập</label>
+                    <input type="text" id="acc-username" disabled />
+                  </div>
+                  <div class="vp-field">
+                    <label>Email</label>
+                    <input type="email" id="acc-email" disabled />
+                  </div>
+                </div>
+                <div class="vp-field">
+                  <label for="acc-fullname">Họ và tên chủ thẻ</label>
+                  <input type="text" id="acc-fullname" required minlength="2" maxlength="80" />
+                </div>
+                <div class="vp-grid-2">
+                  <div class="vp-field">
+                    <label for="acc-phone">Số điện thoại</label>
+                    <input type="tel" id="acc-phone" placeholder="0901234567" />
+                  </div>
+                  <div class="vp-field">
+                    <label for="acc-vehicle-plate">Biển số xe đăng ký</label>
+                    <input type="text" id="acc-vehicle-plate" placeholder="VD: 59X3-123.45" maxlength="20" style="text-transform:uppercase;font-family:var(--font-mono);font-weight:700;" />
+                  </div>
+                </div>
+                <button type="submit" class="vp-btn vp-btn--primary vp-btn--block">Lưu hồ sơ &amp; Biển số xe</button>
+              </form>
 
-            <hr class="vp-hr" />
+              <hr class="vp-hr" />
 
-            <h2 class="section-title" style="margin-bottom:14px;">Đổi Mật Khẩu Bảo Mật</h2>
-            <form id="form-change-pw">
-              <div class="vp-field">
-                <label for="pw-current">Mật khẩu hiện tại</label>
-                <input type="password" id="pw-current" required />
-              </div>
-              <div class="vp-field">
-                <label for="pw-new">Mật khẩu mới (>= 8 ký tự)</label>
-                <input type="password" id="pw-new" required minlength="8" />
-              </div>
-              <button type="submit" class="vp-btn vp-btn--outline vp-btn--block">Cập nhật mật khẩu</button>
-            </form>
+              <h2 class="section-title" style="margin-bottom:14px;">Đổi Mật Khẩu Bảo Mật</h2>
+              <form id="form-change-pw">
+                <div class="vp-field">
+                  <label for="pw-current">Mật khẩu hiện tại</label>
+                  <input type="password" id="pw-current" required />
+                </div>
+                <div class="vp-field">
+                  <label for="pw-new">Mật khẩu mới (>= 8 ký tự)</label>
+                  <input type="password" id="pw-new" required minlength="8" />
+                </div>
+                <button type="submit" class="vp-btn vp-btn--outline vp-btn--block">Cập nhật mật khẩu</button>
+              </form>
 
-            <button type="button" id="btn-logout-mobile" class="vp-btn vp-btn--danger vp-btn--block" style="margin-top:20px;">
-              Đăng xuất khỏi thiết bị
-            </button>
+              <button type="button" id="btn-logout-mobile" class="vp-btn vp-btn--danger vp-btn--block" style="margin-top:20px;">
+                Đăng xuất khỏi thiết bị
+              </button>
+            </div>
           </div>
 
-          <div class="surface-card">
-            <h2 class="section-title" style="margin-bottom:8px;">Gửi Yêu Cầu Hỗ Trợ</h2>
-            <p class="section-sub" style="margin-bottom:14px;">
-              Cần tra soát giao dịch nạp tiền hoặc mở khóa thẻ? Gửi yêu cầu trực tiếp tới Trung tâm điều hành.
-            </p>
-            <form id="form-support">
-              <div class="vp-field">
-                <label for="sup-subject">Tiêu đề hỗ trợ</label>
-                <input type="text" id="sup-subject" placeholder="Ví dụ: Hỗ trợ kiểm tra đơn nạp tiền" required minlength="4" />
+          <div>
+            <!-- ĐĂNG KÝ ĐỐI TƯỢNG ƯU TIÊN (MANDATORY PROOF UPLOAD) -->
+            <div class="surface-card priority-reg-card">
+              <div class="section-head">
+                <div>
+                  <span class="pass-chip pass-chip--gold">PRIORITY VERIFICATION</span>
+                  <h2 class="section-title" style="margin-top:4px;">Đăng Ký Đối Tượng Ưu Tiên</h2>
+                </div>
+                <span class="status-pill" id="prio-status-badge">CHƯA ĐĂNG KÝ</span>
               </div>
-              <div class="vp-field">
-                <label for="sup-message">Nội dung chi tiết</label>
-                <textarea id="sup-message" rows="3" placeholder="Mô tả mã giao dịch hoặc vấn đề gặp phải..." required minlength="8"></textarea>
-              </div>
-              <button type="submit" class="vp-btn vp-btn--accent vp-btn--block">Gửi yêu cầu hỗ trợ</button>
-            </form>
 
-            <h3 style="font-size:0.95rem;margin:20px 0 10px;">Yêu cầu đã gửi</h3>
-            <div id="ui-support-list" class="tx-compact-list"></div>
+              <p class="section-sub" style="margin-bottom:12px;">
+                Xác minh Học sinh / Sinh viên hoặc diện ưu tiên để mở khóa <strong>Gói Vé Tháng Ưu Đãi HSSV (60.000 VNĐ)</strong>.
+              </p>
+
+              <div id="prio-current-banner" class="vp-alert" style="display:none;"></div>
+
+              <form id="form-priority-reg">
+                <div class="vp-field">
+                  <label for="prio-type">Nhóm đối tượng ưu tiên</label>
+                  <select id="prio-type" required>
+                    <option value="STUDENT">Học sinh / Sinh viên (Thẻ HSSV)</option>
+                    <option value="SENIOR">Người cao tuổi (&gt;= 60 tuổi)</option>
+                    <option value="DISABLED">Người khuyết tật</option>
+                    <option value="CONTRIBUTOR">Người có công</option>
+                    <option value="STAFF">Cán bộ / Nhân viên nội bộ</option>
+                  </select>
+                </div>
+
+                <div class="vp-grid-2">
+                  <div class="vp-field">
+                    <label for="prio-card-code">Mã số HSSV / CCCD</label>
+                    <input type="text" id="prio-card-code" placeholder="VD: SV20261089" required minlength="4" maxlength="50" />
+                  </div>
+                  <div class="vp-field">
+                    <label for="prio-org">Trường học / Đơn vị cấp</label>
+                    <input type="text" id="prio-org" placeholder="VD: ĐH Bách Khoa" required minlength="3" maxlength="120" />
+                  </div>
+                </div>
+
+                <div class="vp-field">
+                  <label for="prio-proof-file">Ảnh bằng chứng bắt buộc (Thẻ sinh viên, ảnh chụp Portal trường...)</label>
+                  <input type="file" id="prio-proof-file" accept="image/*" required />
+                  <div id="prio-proof-preview-wrap" style="display:none;margin-top:8px;">
+                    <img id="prio-proof-preview" src="" alt="Xem trước bằng chứng" style="max-height:140px;border-radius:10px;border:1px solid var(--border);" />
+                  </div>
+                </div>
+
+                <div class="vp-field">
+                  <label for="prio-note">Ghi chú bổ sung (tùy chọn)</label>
+                  <input type="text" id="prio-note" placeholder="VD: Khóa 2024 - 2028, Khoa CNTT" />
+                </div>
+
+                <button type="submit" class="vp-btn vp-btn--accent vp-btn--block" id="btn-submit-priority">
+                  Gửi Hồ Sơ Xét Duyệt Đối Tượng Ưu Tiên
+                </button>
+              </form>
+
+              <div id="ui-priority-req-list" class="tx-compact-list" style="margin-top:14px;"></div>
+            </div>
+
+            <!-- YÊU CẦU HỖ TRỢ -->
+            <div class="surface-card">
+              <h2 class="section-title" style="margin-bottom:8px;">Gửi Yêu Cầu Hỗ Trợ</h2>
+              <form id="form-support">
+                <div class="vp-field">
+                  <label for="sup-subject">Tiêu đề hỗ trợ</label>
+                  <input type="text" id="sup-subject" placeholder="Ví dụ: Hỗ trợ kiểm tra đơn nạp tiền" required minlength="4" />
+                </div>
+                <div class="vp-field">
+                  <label for="sup-message">Nội dung chi tiết</label>
+                  <textarea id="sup-message" rows="2" placeholder="Mô tả vấn đề gặp phải..." required minlength="8"></textarea>
+                </div>
+                <button type="submit" class="vp-btn vp-btn--outline vp-btn--block">Gửi yêu cầu hỗ trợ</button>
+              </form>
+              <div id="ui-support-list" class="tx-compact-list" style="margin-top:12px;"></div>
+            </div>
           </div>
         </div>
       </section>
     </main>
 
-    <!-- MOBILE BOTTOM NAVIGATION (WITH SEPARATE VÉ LƯỢT & VÉ THÁNG TABS) -->
-    <nav class="bottom-nav bottom-nav--6" aria-label="Điều hướng di động">
+    <!-- MERGED 5-ITEM MOBILE BOTTOM NAVIGATION (RED BOX MERGED INTO "Thẻ của tôi") -->
+    <nav class="bottom-nav" aria-label="Điều hướng di động">
       <button type="button" class="bnav-btn active" data-nav="home">
         <span class="bnav-icon">&#8962;</span>
         <span class="bnav-label">Trang chủ</span>
       </button>
-      <button type="button" class="bnav-btn" data-nav="single-ticket">
+      <button type="button" class="bnav-btn" data-nav="tickets">
         <span class="bnav-icon">&#9638;</span>
-        <span class="bnav-label">Vé lượt</span>
-      </button>
-      <button type="button" class="bnav-btn" data-nav="monthly-pass">
-        <span class="bnav-icon">&#127915;</span>
-        <span class="bnav-label">Vé tháng</span>
+        <span class="bnav-label">Thẻ của tôi</span>
       </button>
       <button type="button" class="bnav-btn bnav-btn--center" data-nav="topup">
         <span class="bnav-icon">&#43;</span>
@@ -730,7 +792,7 @@
     </div>
   </div>
 
-  <script src="/static/js/api.js?v=2.5"></script>
-  <script src="/static/js/user_app.js?v=2.5"></script>
+  <script src="/static/js/api.js?v=2.6"></script>
+  <script src="/static/js/user_app.js?v=2.6"></script>
 </body>
 </html>

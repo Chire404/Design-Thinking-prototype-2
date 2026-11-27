@@ -697,3 +697,35 @@ body {
   color: #92400E;
   border: 1px solid #FCD34D;
 }
+
+/* PRIORITY & VEHICLE PLATE STYLES */
+.badge--APPROVED { background: #D1FAE5; color: #065F46; }
+.badge--REJECTED { background: #FEE2E2; color: #991B1B; }
+.badge--PRIORITY_LOCK { background: #EDE9FE; color: #5B21B6; }
+
+.plate-tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #F1F5F9;
+  color: #0F172A;
+  border: 1.5px solid #CBD5E1;
+}
+
+.proof-thumb {
+  width: 68px;
+  height: 46px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1.5px solid #CBD5E1;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.proof-thumb:hover {
+  transform: scale(1.06);
+  border-color: #0284C7;
+}

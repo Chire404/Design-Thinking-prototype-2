@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from flask import Blueprint, current_app, g, request
 
-from backend.routes import api_success, rate_limit, require_auth
+from backend.routes import api_success, extract_session_from_request, rate_limit, require_auth
+from backend.services.auth_service import get_authenticated_session
 from backend.services.pass_service import (
     get_user_passes_overview,
     list_pass_plans,
@@ -17,7 +18,10 @@ pass_bp = Blueprint("pass_api", __name__, url_prefix="/api/passes")
 
 @pass_bp.get("/plans")
 def get_plans():
-    return api_success({"plans": list_pass_plans(include_inactive=False)})
+    raw_token, _ = extract_session_from_request()
+    sess = get_authenticated_session(raw_token)
+    uid = int(sess["user_id"]) if sess else None
+    return api_success({"plans": list_pass_plans(include_inactive=False, user_id=uid)})
 
 
 @pass_bp.get("/my")

@@ -687,6 +687,13 @@ def scan_and_deduct_qr(
                     if n_low:
                         post_commit_user_events.append((user_id, "notification", n_low))
 
+            from backend.services.card_wallet_service import PRIORITY_LABELS
+
+            u_plate = user["vehicle_plate"] if "vehicle_plate" in user.keys() else ""
+            u_prio_status = user["priority_status"] if "priority_status" in user.keys() else "NONE"
+            u_prio_type = user["priority_type"] if "priority_type" in user.keys() else "NONE"
+            u_prio_label = PRIORITY_LABELS.get(u_prio_type, "Phổ thông") if u_prio_status == "APPROVED" else None
+
             amt_fmt = "0 VNĐ (Vé Tháng)" if payment_method == "MONTHLY_PASS" else f"-{format_vnd(effective_amount)}"
             result_payload = {
                 "status": "SUCCESS",
@@ -698,6 +705,8 @@ def scan_and_deduct_qr(
                 "user_id": user_id,
                 "user_name": user["full_name"],
                 "username": user["username"],
+                "vehicle_plate": u_plate,
+                "priority_label": u_prio_label,
                 "card_number": card_number,
                 "card_status_after": new_card_status,
                 "amount": effective_amount,

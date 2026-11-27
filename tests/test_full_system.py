@@ -634,9 +634,10 @@ def test_26_to_30_ui_mobile_bottom_nav_pwa_qr_privacy_and_camera_assets(app):
     assert app_page.status_code == 200
     app_html = app_page.get_data(as_text=True)
     assert 'class="desktop-rail"' in app_html
-    assert 'class="bottom-nav bottom-nav--6"' in app_html or 'class="bottom-nav"' in app_html
-    for label in ("Trang chủ", "Vé lượt", "Vé tháng", "Nạp tiền", "Lịch sử", "Tài khoản"):
+    assert 'class="bottom-nav"' in app_html
+    for label in ("Trang chủ", "Thẻ của tôi", "Nạp tiền", "Lịch sử", "Tài khoản"):
         assert label in app_html
+    assert "Tab Vé Lượt" in app_html and "Tab Vé Tháng" in app_html
 
     # Test 29: QR SVG renders cleanly and QR token contains ZERO PII or balance
     qr_data = u_client.post("/api/qr/issue", headers={"Authorization": f"Bearer {u_token}"}).get_json()["data"]

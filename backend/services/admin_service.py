@@ -8,6 +8,7 @@ from datetime import timedelta
 from backend.database import atomic_transaction, read_db, row_to_dict, rows_to_dicts
 from backend.services import AppError
 from backend.services.card_wallet_service import (
+    PRIORITY_LABELS,
     compute_card_status,
     create_notification_in_tx,
     emit_user_realtime_update,
@@ -206,7 +207,9 @@ def list_users_for_admin(search: str = "", status_filter: str = "") -> list[dict
         fare = int(settings["fare_amount"])
 
         sql = """
-            SELECT u.id, u.username, u.full_name, u.email, u.phone, u.role, u.status, u.created_at,
+            SELECT u.id, u.username, u.full_name, u.email, u.phone, u.vehicle_plate,
+                   u.priority_type, u.priority_status, u.priority_card_code, u.priority_org,
+                   u.role, u.status, u.created_at,
                    w.balance, w.total_topup, w.total_spent, w.status AS wallet_status,
                    vc.id AS card_id, vc.card_number, vc.issued_at,
                    EXISTS(
@@ -226,8 +229,8 @@ def list_users_for_admin(search: str = "", status_filter: str = "") -> list[dict
 
         if search:
             like = f"%{search}%"
-            sql += " AND (u.username LIKE ? OR u.full_name LIKE ? OR u.email LIKE ? OR vc.card_number LIKE ?)"
-            params.extend([like, like, like, like])
+            sql += " AND (u.username LIKE ? OR u.full_name LIKE ? OR u.email LIKE ? OR vc.card_number LIKE ? OR u.vehicle_plate LIKE ?)"
+            params.extend([like, like, like, like, like])
 
         if status_filter in ("ACTIVE", "SUSPENDED", "PENDING"):
             sql += " AND u.status = ?"
@@ -239,6 +242,7 @@ def list_users_for_admin(search: str = "", status_filter: str = "") -> list[dict
     for r in rows:
         eff_status = "SUSPENDED" if r["wallet_status"] == "LOCKED" else r["status"]
         r["has_active_pass"] = bool(r["has_active_pass"])
+        r["priority_label"] = PRIORITY_LABELS.get(r.get("priority_type") or "NONE", "Phổ thông")
         r["card_status"] = compute_card_status(
             eff_status, int(r["balance"]), fare, has_active_pass=r["has_active_pass"]
         )
@@ -257,12 +261,18 @@ def get_admin_user_detail(target_user_id: int) -> dict:
 
         user = row_to_dict(
             conn.execute(
-                "SELECT id, username, full_name, email, phone, role, status, created_at, updated_at FROM users WHERE id = ?",
+                """
+                SELECT id, username, full_name, email, phone, vehicle_plate,
+                       priority_type, priority_status, priority_card_code, priority_org, priority_expires_at,
+                       role, status, created_at, updated_at
+                FROM users WHERE id = ?
+                """,
                 (target_user_id,),
             ).fetchone()
         )
         if not user:
             raise AppError("USER_NOT_FOUND", "Không tìm thấy người dùng.", 404)
+        user["priority_label"] = PRIORITY_LABELS.get(user.get("priority_type") or "NONE", "Phổ thông")
 
         wallet = row_to_dict(conn.execute("SELECT * FROM wallets WHERE user_id = ?", (target_user_id,)).fetchone())
         card = row_to_dict(conn.execute("SELECT * FROM virtual_cards WHERE user_id = ?", (target_user_id,)).fetchone())
@@ -927,3 +937,119 @@ def resolve_support_request(admin_id: int, request_id: int, status: str, admin_n
     if notif:
         emit_user_realtime_update(int(sr["user_id"]), "notification", notif)
     return {"id": request_id, "status": status}
+
+
+
+def list_priority_requests_for_admin(status_filter: str = "") -> list[dict]:
+    with read_db() as conn:
+        sql = """
+            SELECT pr.*, u.username, u.full_name AS user_name, u.email, u.vehicle_plate, vc.card_number
+            FROM priority_requests pr
+            JOIN users u ON u.id = pr.user_id
+            LEFT JOIN virtual_cards vc ON vc.user_id = pr.user_id
+            WHERE 1 = 1
+        """
+        params: list = []
+        if status_filter and status_filter.upper() in ("PENDING", "APPROVED", "REJECTED"):
+            sql += " AND pr.status = ?"
+            params.append(status_filter.upper())
+        sql += " ORDER BY pr.id DESC LIMIT 150"
+        rows = rows_to_dicts(conn.execute(sql, params).fetchall())
+    for r in rows:
+        r["priority_label"] = PRIORITY_LABELS.get(r["priority_type"], r["priority_type"])
+    return rows
+
+
+def admin_review_priority_request(
+    admin_id: int,
+    request_id: int,
+    approve: bool,
+    admin_note: str = "",
+    ip_address: str = "",
+) -> dict:
+    from datetime import timedelta
+
+    now_dt = utc_now()
+    now_iso = utc_now_iso()
+    new_status = "APPROVED" if approve else "REJECTED"
+    clean_note = (admin_note or ("Hồ sơ hợp lệ, đã kích hoạt ưu tiên" if approve else "Hồ sơ chưa hợp lệ")).strip()[:250]
+    expires_iso = (now_dt + timedelta(days=365)).strftime("%Y-%m-%dT%H:%M:%S.%fZ") if approve else None
+    post_events: list[tuple[int, str, dict]] = []
+
+    with atomic_transaction() as conn:
+        req = conn.execute("SELECT * FROM priority_requests WHERE id = ?", (request_id,)).fetchone()
+        if not req:
+            raise AppError("NOT_FOUND", "Không tìm thấy hồ sơ đăng ký đối tượng ưu tiên.", 404)
+        if req["status"] != "PENDING":
+            raise AppError("ALREADY_REVIEWED", f"Hồ sơ này đã được xử lý ({req['status']}).", 409)
+
+        uid = int(req["user_id"])
+        p_label = PRIORITY_LABELS.get(req["priority_type"], req["priority_type"])
+
+        conn.execute(
+            """
+            UPDATE priority_requests
+            SET status = ?, admin_note = ?, reviewed_by_admin_id = ?, reviewed_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (new_status, clean_note, admin_id, now_iso, now_iso, request_id),
+        )
+
+        if approve:
+            conn.execute(
+                """
+                UPDATE users
+                SET priority_type = ?, priority_status = 'APPROVED',
+                    priority_card_code = ?, priority_org = ?, priority_expires_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (req["priority_type"], req["id_card_code"], req["organization_name"], expires_iso, now_iso, uid),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE users
+                SET priority_status = 'REJECTED', updated_at = ?
+                WHERE id = ?
+                """,
+                (now_iso, uid),
+            )
+
+        conn.execute(
+            """
+            INSERT INTO audit_logs (admin_id, action, target_type, target_id, metadata_json, ip_address, created_at)
+            VALUES (?, ?, 'PRIORITY_REQUEST', ?, ?, ?, ?)
+            """,
+            (
+                admin_id,
+                "APPROVE_PRIORITY" if approve else "REJECT_PRIORITY",
+                str(request_id),
+                json.dumps(
+                    {"user_id": uid, "priority_type": req["priority_type"], "status": new_status, "note": clean_note},
+                    ensure_ascii=False,
+                ),
+                ip_address[:64],
+                now_iso,
+            ),
+        )
+
+        notif = create_notification_in_tx(
+            conn,
+            user_id=uid,
+            notif_type="PRIORITY_REVIEWED",
+            title=f"Hồ sơ Đối tượng Ưu tiên: {'ĐÃ ĐƯỢC DUYỆT' if approve else 'TỪ CHỐI'}",
+            message=(
+                f"Đăng ký nhóm '{p_label}' đã được phê duyệt! Phản hồi: {clean_note}"
+                if approve
+                else f"Đăng ký nhóm '{p_label}' chưa được duyệt: {clean_note}"
+            ),
+            metadata={"request_id": request_id, "status": new_status, "priority_type": req["priority_type"]},
+        )
+        if notif:
+            post_events.append((uid, "notification", notif))
+        post_events.append((uid, "priority_updated", {"status": new_status, "priority_type": req["priority_type"]}))
+
+    for uid, ev, data in post_events:
+        emit_user_realtime_update(uid, ev, data)
+
+    return {"id": request_id, "status": new_status, "priority_type": req["priority_type"]}

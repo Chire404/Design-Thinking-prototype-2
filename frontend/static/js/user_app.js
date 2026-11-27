@@ -1,20 +1,22 @@
-/* VeloPass Prototype 2.5 User App Controller:
- * - Separated Vé Lượt (SINGLE) & Vé Tháng (MONTHLY) tabs + independent Dynamic QR codes
- * - Home Page Direct Monthly Pass Top-up & Purchase module
- * - Separated Top-up Requests: AUTO (Bank Transfer / VietQR) vs MANUAL (Cash / Counter / Other)
+/* VeloPass Prototype 2.6 User App Controller:
+ * - Merged Bottom Nav ("Thẻ của tôi") + preserved top 2-tab switch (Tab Vé Lượt | Tab Vé Tháng)
+ * - Vehicle License Plate in Personal Profile & Card display
+ * - Priority Passenger Registration with mandatory proof image upload & Student Pass unlock
  */
 (() => {
   VP.registerServiceWorker();
 
   const state = {
     activeView: "home",
-    homeQrMode: "SINGLE", // 'SINGLE' | 'MONTHLY'
-    topupChannel: "AUTO", // 'AUTO' | 'MANUAL'
+    ticketSubTab: "SINGLE", // 'SINGLE' | 'MONTHLY' inside #view-tickets
+    homeQrMode: "SINGLE",
+    topupChannel: "AUTO",
     snapshot: null,
     qrSingle: null,
     qrMonthly: null,
     qrInFlight: { SINGLE: false, MONTHLY: false },
     activeTopup: null,
+    proofImageDataUri: "",
     deferredInstallPrompt: null,
     sse: null,
   };
@@ -26,10 +28,36 @@
     PENDING: { text: "CHỜ XÁC MINH", cls: "badge--warn" },
   };
 
-  // --- View & Tab Navigation ---
-  function switchView(viewName) {
-    if (viewName === "card") viewName = "single-ticket";
-    if (viewName === "passes") viewName = "monthly-pass";
+  // --- Switch Unified Ticket Sub-tab (Blue Box: Tab Vé Lượt | Tab Vé Tháng) ---
+  function switchTicketSubTab(mode) {
+    state.ticketSubTab = mode === "MONTHLY" ? "MONTHLY" : "SINGLE";
+    document.querySelectorAll("[data-ticket-subtab]").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.ticketSubtab === state.ticketSubTab);
+    });
+    document.getElementById("subtab-panel-single").style.display = state.ticketSubTab === "SINGLE" ? "block" : "none";
+    document.getElementById("subtab-panel-monthly").style.display = state.ticketSubTab === "MONTHLY" ? "block" : "none";
+
+    if (state.ticketSubTab === "MONTHLY") {
+      loadMyPasses();
+      if (state.snapshot?.active_pass && !state.qrMonthly) issueModeQR("MONTHLY", false);
+    } else {
+      syncAllQRScreens();
+    }
+  }
+
+  document.querySelectorAll("[data-ticket-subtab]").forEach((btn) => {
+    btn.addEventListener("click", () => switchTicketSubTab(btn.dataset.ticketSubtab));
+  });
+
+  // --- Main View Navigation ---
+  function switchView(viewName, optionalTicketTab = null) {
+    if (viewName === "card" || viewName === "single-ticket") {
+      viewName = "tickets";
+      optionalTicketTab = optionalTicketTab || "SINGLE";
+    } else if (viewName === "passes" || viewName === "monthly-pass") {
+      viewName = "tickets";
+      optionalTicketTab = optionalTicketTab || "MONTHLY";
+    }
     state.activeView = viewName;
 
     document.querySelectorAll(".app-view").forEach((v) => {
@@ -39,14 +67,13 @@
       btn.classList.toggle("active", btn.dataset.nav === viewName);
     });
 
-    if (viewName === "history") loadFullHistory();
-    if (viewName === "account") loadSupportTickets();
-    if (viewName === "monthly-pass") {
-      loadMyPasses();
-      if (state.snapshot?.active_pass && !state.qrMonthly) issueModeQR("MONTHLY", false);
+    if (viewName === "tickets") {
+      switchTicketSubTab(optionalTicketTab || state.ticketSubTab);
     }
-    if (viewName === "single-ticket") {
-      syncAllQRScreens();
+    if (viewName === "history") loadFullHistory();
+    if (viewName === "account") {
+      loadSupportTickets();
+      loadPriorityRegistrations();
     }
   }
 
@@ -56,15 +83,18 @@
   document.querySelectorAll("[data-goto]").forEach((btn) => {
     btn.addEventListener("click", () => switchView(btn.dataset.goto));
   });
+  document.querySelectorAll("[data-goto-ticket]").forEach((btn) => {
+    btn.addEventListener("click", () => switchView("tickets", btn.dataset.gotoTicket));
+  });
 
   if (location.hash) {
     const h = location.hash.replace("#", "");
-    if (["home", "single-ticket", "monthly-pass", "card", "passes", "topup", "history", "account"].includes(h)) {
+    if (["home", "tickets", "card", "passes", "topup", "history", "account"].includes(h)) {
       switchView(h);
     }
   }
 
-  // --- Switch Top-up Channel Tabs (AUTO vs MANUAL) ---
+  // --- Top-up Channel Tabs (AUTO vs MANUAL) ---
   function switchTopupChannel(chan, presetPurpose = null, presetPlanId = null) {
     state.topupChannel = chan === "MANUAL" ? "MANUAL" : "AUTO";
     document.querySelectorAll("[data-topup-chan]").forEach((b) => {
@@ -95,7 +125,7 @@
     btn.addEventListener("click", () => switchTopupChannel(btn.dataset.topupChan));
   });
 
-  // --- Home QR Mode Switcher (SINGLE vs MONTHLY) ---
+  // --- Home QR Mode Switcher ---
   document.querySelectorAll("[data-home-qrmode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.homeQrMode = btn.dataset.homeQrmode;
@@ -125,7 +155,7 @@
   document.getElementById("btn-install-pwa").onclick = triggerInstallPWA;
   document.getElementById("btn-install-pwa-desktop").onclick = triggerInstallPWA;
 
-  // --- Populate Plan Selectors Across Home & Top-up Forms ---
+  // --- Populate Plan Dropdowns (Already filtered by Backend for Priority Eligibility!) ---
   function populatePlanDropdowns(plans) {
     if (!plans || !plans.length) return;
     const optsHtml = plans
@@ -139,7 +169,9 @@
       if (el) {
         const prev = el.value;
         el.innerHTML = optsHtml;
-        if (prev) el.value = prev;
+        if (prev && Array.from(el.options).some((o) => o.value === prev)) {
+          el.value = prev;
+        }
       }
     });
   }
@@ -169,26 +201,19 @@
   });
   document.getElementById("manual-topup-plan").addEventListener("change", syncManualPlanAmount);
 
-  // --- Home Page Direct Monthly Pass Top-up Actions ---
+  // --- Home Page Direct Monthly Pass Top-up ---
   document.getElementById("btn-home-pass-auto-topup").onclick = async () => {
     const planId = Number(document.getElementById("home-pass-plan-select").value);
     if (!planId) return;
     try {
       const order = await VP.api("/api/topups", {
         method: "POST",
-        body: {
-          topup_channel: "AUTO",
-          purpose: "MONTHLY_PASS",
-          target_plan_id: planId,
-        },
+        body: { topup_channel: "AUTO", purpose: "MONTHLY_PASS", target_plan_id: planId },
       });
       switchView("topup");
       switchTopupChannel("AUTO", "MONTHLY_PASS", planId);
       showTopupOrder(order);
-      VP.toast(
-        `Đã tạo mã VietQR nạp ${order.amount_formatted} cho Vé Tháng! Sau khi chuyển khoản khớp, Vé Tháng sẽ tự kích hoạt.`,
-        "success"
-      );
+      VP.toast(`Đã tạo mã VietQR nạp ${order.amount_formatted} cho Vé Tháng!`, "success");
     } catch (err) {
       VP.toast(err.message, "danger");
     }
@@ -198,7 +223,7 @@
     const planId = Number(document.getElementById("home-pass-plan-select").value);
     switchView("topup");
     switchTopupChannel("MANUAL", "MONTHLY_PASS", planId);
-    VP.toast("Hãy chọn hình thức thanh toán thủ công (Tiền mặt/Khác) và gửi Request cho Admin.", "info");
+    VP.toast("Hãy chọn hình thức thanh toán thủ công và gửi Request cho Admin.", "info");
   };
 
   document.getElementById("btn-home-pass-wallet-buy").onclick = async () => {
@@ -233,6 +258,20 @@
 
     document.getElementById("ui-user-fullname").textContent = user.full_name;
     document.getElementById("ui-card-holder").textContent = user.full_name;
+    document.getElementById("ui-card-plate").textContent = user.vehicle_plate || "Chưa ĐK";
+    document.getElementById("single-plate").textContent = user.vehicle_plate || "Chưa cập nhật";
+
+    // Header Priority Chip
+    const prioChip = document.getElementById("ui-header-prio-chip");
+    const promoHint = document.getElementById("ui-priority-promo-hint");
+    if (user.priority_status === "APPROVED") {
+      prioChip.style.display = "inline-block";
+      prioChip.textContent = `Ưu tiên: ${user.priority_label}`;
+      if (promoHint) promoHint.style.display = "none";
+    } else {
+      prioChip.style.display = "none";
+      if (promoHint) promoHint.style.display = "block";
+    }
 
     const vCard = document.getElementById("ui-virtual-card");
     vCard.dataset.status = card.status;
@@ -242,7 +281,6 @@
     badge1.textContent = stMeta.text;
     badge1.className = `card-status-badge ${stMeta.cls}`;
 
-    // Single-ticket tab metadata
     const singleEligible = user.status === "ACTIVE" && wallet.status === "ACTIVE" && wallet.balance >= system.fare_amount;
     const singleBadge = document.getElementById("single-status-badge");
     singleBadge.textContent = singleEligible ? "VÉ LƯỢT SẴN SÀNG" : "CHƯA ĐỦ SỐ DƯ";
@@ -250,9 +288,7 @@
     document.getElementById("single-card-number").textContent = card.card_number;
     document.getElementById("single-balance").textContent = wallet.balance_formatted;
     document.getElementById("single-fare").textContent = `${system.fare_formatted} / lượt`;
-    document.getElementById("single-remaining-trips").textContent = `${wallet.remaining_trips} lượt`;
 
-    // Monthly-pass tab badge
     const monthlyBadge = document.getElementById("monthly-status-badge");
     if (active_pass) {
       monthlyBadge.textContent = `CÒN ${active_pass.remaining_days} NGÀY`;
@@ -280,7 +316,7 @@
     document.getElementById("ui-card-trips").textContent =
       singleEligible
         ? `Ví Vé Lượt tương đương ~${wallet.remaining_trips} lượt (${system.fare_formatted}/lượt)`
-        : `Ví Vé Lượt dưới ${system.fare_formatted} (Cần nạp thêm nếu đi Vé Lượt)`;
+        : `Ví Vé Lượt dưới ${system.fare_formatted}`;
 
     document.getElementById("ui-card-number").textContent = card.card_number;
     document.getElementById("fullscreen-card-num").textContent = card.card_number;
@@ -290,10 +326,14 @@
     document.getElementById("ui-wallet-total-spent").textContent = wallet.total_spent_formatted;
     document.getElementById("ui-low-balance-banner").style.display = wallet.low_balance ? "block" : "none";
 
+    // Profile & Vehicle Plate fields
     document.getElementById("acc-username").value = user.username;
     document.getElementById("acc-email").value = user.email;
     document.getElementById("acc-fullname").value = user.full_name;
     document.getElementById("acc-phone").value = user.phone || "";
+    document.getElementById("acc-vehicle-plate").value = user.vehicle_plate || "";
+
+    renderPrioritySummaryBanner(user);
 
     const nb = document.getElementById("ui-notif-badge");
     if (unread_notifications > 0) {
@@ -309,6 +349,41 @@
     renderCompactNotifications(notifications, "modal-notif-list", 30);
 
     syncAllQRScreens();
+  }
+
+  function renderPrioritySummaryBanner(user) {
+    const badge = document.getElementById("prio-status-badge");
+    const banner = document.getElementById("prio-current-banner");
+    const form = document.getElementById("form-priority-reg");
+    const st = user.priority_status || "NONE";
+
+    if (st === "APPROVED") {
+      badge.textContent = "ĐÃ PHÊ DUYỆT";
+      badge.className = "status-pill status-pill--SUCCESS";
+      banner.style.display = "block";
+      banner.className = "vp-alert vp-alert--success";
+      banner.innerHTML = `<strong>Đã kích hoạt ưu tiên:</strong> ${VP.escapeHtml(user.priority_label)} &bull; Mã thẻ: <strong>${VP.escapeHtml(user.priority_card_code)}</strong> (${VP.escapeHtml(user.priority_org)}). Bạn đã được mở khóa gói <strong>Vé Tháng Ưu Đãi HSSV</strong>!`;
+      form.style.display = "none";
+    } else if (st === "PENDING") {
+      badge.textContent = "CHỜ XÉT DUYỆT";
+      badge.className = "status-pill status-pill--PROCESSING";
+      banner.style.display = "block";
+      banner.className = "vp-alert vp-alert--warning";
+      banner.innerHTML = `Hồ sơ đăng ký <strong>${VP.escapeHtml(user.priority_label)}</strong> (${VP.escapeHtml(user.priority_card_code)}) đang chờ Quản trị viên kiểm tra bằng chứng.`;
+      form.style.display = "none";
+    } else if (st === "REJECTED") {
+      badge.textContent = "CẦN BỔ SUNG";
+      badge.className = "status-pill status-pill--FAILED";
+      banner.style.display = "block";
+      banner.className = "vp-alert vp-alert--danger";
+      banner.innerHTML = `Hồ sơ trước đó chưa được duyệt. Vui lòng tải lại ảnh chụp bằng chứng rõ nét để gửi lại.`;
+      form.style.display = "block";
+    } else {
+      badge.textContent = "CHƯA ĐĂNG KÝ";
+      badge.className = "status-pill";
+      banner.style.display = "none";
+      form.style.display = "block";
+    }
   }
 
   function renderCompactUsage(items) {
@@ -394,7 +469,7 @@
       .join("");
   }
 
-  // --- Independent Dynamic QR Lifecycle for SINGLE (Vé Lượt) & MONTHLY (Vé Tháng) ---
+  // --- Independent Dynamic QR Lifecycle ---
   function isModeEligible(mode) {
     const snap = state.snapshot;
     if (!snap) return false;
@@ -408,10 +483,7 @@
     if (state.qrInFlight[m] || !isModeEligible(m)) return;
     state.qrInFlight[m] = true;
     try {
-      const qrData = await VP.api("/api/qr/issue", {
-        method: "POST",
-        body: { ticket_mode: m },
-      });
+      const qrData = await VP.api("/api/qr/issue", { method: "POST", body: { ticket_mode: m } });
       if (m === "MONTHLY") state.qrMonthly = qrData;
       else state.qrSingle = qrData;
       syncAllQRScreens();
@@ -424,10 +496,9 @@
 
   function syncAllQRScreens() {
     if (!state.snapshot) return;
-    const { user, wallet, active_pass, system } = state.snapshot;
+    const { user, wallet, system } = state.snapshot;
     const suspended = user.status === "SUSPENDED" || wallet.status === "LOCKED";
 
-    // 1. Sync Single-Ride Ticket View
     const singleOk = isModeEligible("SINGLE");
     if (!singleOk) {
       state.qrSingle = null;
@@ -437,7 +508,7 @@
         ? "Tài Khoản Đang Tạm Khóa"
         : "Số Dư Ví Chưa Đủ Cho Vé Lượt";
       document.getElementById("single-locked-desc").textContent = suspended
-        ? "Quản trị viên đã tạm khóa thẻ. Không thể tạo mã QR."
+        ? "Quản trị viên đã tạm khóa thẻ."
         : `Số dư hiện tại (${wallet.balance_formatted}) dưới mức ${system.fare_formatted}.`;
     } else {
       document.getElementById("single-qr-locked").style.display = "none";
@@ -449,7 +520,6 @@
       }
     }
 
-    // 2. Sync Monthly-Pass Ticket View
     const monthlyOk = isModeEligible("MONTHLY");
     if (!monthlyOk) {
       state.qrMonthly = null;
@@ -465,7 +535,6 @@
       }
     }
 
-    // 3. Sync Home QR Dock (follows state.homeQrMode: 'SINGLE' | 'MONTHLY')
     const homeMode = state.homeQrMode;
     document.getElementById("home-qr-mode-heading").textContent =
       homeMode === "MONTHLY" ? "Mã QR Vé Tháng Qua Cổng" : "Mã QR Vé Lượt Qua Cổng";
@@ -490,10 +559,10 @@
       } else if (homeMode === "MONTHLY") {
         document.getElementById("home-qr-locked-title").textContent = "Chưa Kích Hoạt Vé Tháng";
         document.getElementById("home-qr-locked-desc").textContent =
-          "Hãy nạp hoặc mua gói Vé Tháng ngay ở khung phía trên để mở mã QR Vé Tháng!";
+          "Hãy nạp hoặc mua gói Vé Tháng ở khung phía trên để mở mã QR Vé Tháng!";
         ctaBtn.style.display = "inline-flex";
-        ctaBtn.textContent = "Mở tab Đăng ký Vé Tháng";
-        ctaBtn.onclick = () => switchView("monthly-pass");
+        ctaBtn.textContent = "Mở Tab Vé Tháng";
+        ctaBtn.onclick = () => switchView("tickets", "MONTHLY");
       } else {
         document.getElementById("home-qr-locked-title").textContent = "Ví Vé Lượt Chưa Đủ Số Dư";
         document.getElementById("home-qr-locked-desc").textContent =
@@ -525,9 +594,7 @@
       const bEl = document.getElementById(barId);
       if (tEl) tEl.textContent = `Tự làm mới sau ${remainSec}s`;
       if (bEl) bEl.style.width = `${pct}%`;
-      if (remainSec <= 2 && isModeEligible(mode)) {
-        issueModeQR(mode, false);
-      }
+      if (remainSec <= 2 && isModeEligible(mode)) issueModeQR(mode, false);
     };
 
     updateBar(state.qrSingle, "SINGLE", "single-qr-countdown", "single-qr-progress");
@@ -535,7 +602,6 @@
     const homeQr = state.homeQrMode === "MONTHLY" ? state.qrMonthly : state.qrSingle;
     updateBar(homeQr, state.homeQrMode, "home-qr-countdown", "home-qr-progress");
   }
-
   setInterval(updateQRCountdownTick, 1000);
 
   document.getElementById("btn-home-refresh-qr").onclick = () => issueModeQR(state.homeQrMode, true);
@@ -544,9 +610,7 @@
 
   document.getElementById("btn-fullscreen-qr").onclick = () => {
     const activeQr = state.homeQrMode === "MONTHLY" ? state.qrMonthly : state.qrSingle;
-    if (!activeQr) {
-      return VP.toast("Mã QR của chế độ này chưa khả dụng.", "warning");
-    }
+    if (!activeQr) return VP.toast("Mã QR của chế độ này chưa khả dụng.", "warning");
     document.getElementById("fullscreen-qr-title").textContent =
       state.homeQrMode === "MONTHLY" ? "Trình QR Vé Tháng (0 VNĐ)" : "Trình QR Vé Lượt (4.000 VNĐ)";
     document.getElementById("fullscreen-qr-img").src = activeQr.qr_svg_data_uri;
@@ -559,7 +623,7 @@
     document.getElementById("modal-fullscreen-qr").style.display = "none";
   };
 
-  // --- Split Top-up Creation: AUTO vs MANUAL ---
+  // --- Split Top-up Creation ---
   document.querySelectorAll("#auto-amt-chips .amt-chip").forEach((chip) => {
     chip.onclick = () => {
       document.querySelectorAll("#auto-amt-chips .amt-chip").forEach((c) => c.classList.remove("active"));
@@ -621,18 +685,13 @@
     document.getElementById("btn-cancel-topup").style.display = isOpen ? "block" : "none";
   }
 
-  // Form 1: AUTO Top-up Request
   document.getElementById("form-create-topup-auto").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = document.getElementById("btn-create-topup-auto");
     btn.disabled = true;
     try {
       const purpose = document.getElementById("auto-topup-purpose").value;
-      const payload = {
-        topup_channel: "AUTO",
-        payment_method_detail: "BANK_TRANSFER",
-        purpose,
-      };
+      const payload = { topup_channel: "AUTO", payment_method_detail: "BANK_TRANSFER", purpose };
       if (purpose === "MONTHLY_PASS") {
         payload.target_plan_id = Number(document.getElementById("auto-topup-plan").value);
       } else {
@@ -640,7 +699,7 @@
       }
       const order = await VP.api("/api/topups", { method: "POST", body: payload });
       showTopupOrder(order);
-      VP.toast(`Đã tạo đơn Nạp Tự Động ${order.amount_formatted}. Hãy quét mã VietQR để chuyển khoản.`, "success");
+      VP.toast(`Đã tạo đơn Nạp Tự Động ${order.amount_formatted}.`, "success");
       refreshDashboard();
     } catch (err) {
       VP.toast(err.message, "danger");
@@ -649,7 +708,6 @@
     }
   });
 
-  // Form 2: MANUAL Top-up Request
   document.getElementById("form-create-topup-manual").addEventListener("submit", async (e) => {
     e.preventDefault();
     const btn = document.getElementById("btn-create-topup-manual");
@@ -670,7 +728,7 @@
       const order = await VP.api("/api/topups", { method: "POST", body: payload });
       showTopupOrder(order);
       document.getElementById("manual-note-input").value = "";
-      VP.toast(`Đã gửi Request Nạp Thủ Công (${order.amount_formatted}) tới hàng đợi Admin!`, "success");
+      VP.toast(`Đã gửi Request Nạp Thủ Công (${order.amount_formatted}) tới Admin!`, "success");
       refreshDashboard();
     } catch (err) {
       VP.toast(err.message, "danger");
@@ -680,9 +738,7 @@
   });
 
   document.getElementById("btn-copy-acc").onclick = () => {
-    if (state.activeTopup) {
-      VP.copyText(state.activeTopup.bank?.account_number || state.activeTopup.account_number, "số tài khoản");
-    }
+    if (state.activeTopup) VP.copyText(state.activeTopup.bank?.account_number || state.activeTopup.account_number, "số tài khoản");
   };
   document.getElementById("btn-copy-amt").onclick = () => {
     if (state.activeTopup) VP.copyText(String(state.activeTopup.amount), "số tiền");
@@ -743,7 +799,7 @@
     }
   };
 
-  // --- Monthly Pass Tab Details ---
+  // --- Monthly Pass Sub-tab ---
   async function loadMyPasses() {
     try {
       const data = await VP.api("/api/passes/my");
@@ -789,7 +845,7 @@
           <div class="plan-card">
             <div class="plan-card__top">
               <div>
-                <span class="pass-chip">${VP.escapeHtml(pl.badge_text)} &bull; ${pl.duration_days} NGÀY</span>
+                <span class="pass-chip ${pl.requires_priority ? "pass-chip--gold" : ""}">${VP.escapeHtml(pl.badge_text)} &bull; ${pl.duration_days} NGÀY</span>
                 <div class="plan-card__name">${VP.escapeHtml(pl.name)}</div>
               </div>
               <div class="plan-card__price">${VP.escapeHtml(pl.price_formatted)}</div>
@@ -831,9 +887,8 @@
 
       plansEl.querySelectorAll("[data-topup-plan]").forEach((btn) => {
         btn.onclick = () => {
-          const planId = Number(btn.dataset.topupPlan);
           switchView("topup");
-          switchTopupChannel("AUTO", "MONTHLY_PASS", planId);
+          switchTopupChannel("AUTO", "MONTHLY_PASS", Number(btn.dataset.topupPlan));
         };
       });
 
@@ -865,11 +920,7 @@
   async function loadFullHistory() {
     try {
       const data = await VP.api("/api/user/transactions");
-      const uEl = document.getElementById("htab-usage");
-      const tEl = document.getElementById("htab-topup");
-      const lEl = document.getElementById("htab-ledger");
-
-      uEl.innerHTML = data.usages.length
+      document.getElementById("htab-usage").innerHTML = data.usages.length
         ? data.usages
             .map(
               (u) => `
@@ -888,7 +939,7 @@
             .join("")
         : `<div class="empty-state">Chưa có lịch sử quét vé.</div>`;
 
-      tEl.innerHTML = data.topups.length
+      document.getElementById("htab-topup").innerHTML = data.topups.length
         ? data.topups
             .map(
               (t) => `
@@ -907,7 +958,7 @@
             .join("")
         : `<div class="empty-state">Chưa có lịch sử nạp tiền.</div>`;
 
-      lEl.innerHTML = data.ledger.length
+      document.getElementById("htab-ledger").innerHTML = data.ledger.length
         ? data.ledger
             .map(
               (l) => `
@@ -941,7 +992,7 @@
     };
   });
 
-  // --- Notifications & Account ---
+  // --- Notifications ---
   document.getElementById("btn-open-notifications").onclick = () => {
     document.getElementById("modal-notifications").style.display = "flex";
   };
@@ -959,6 +1010,7 @@
   document.getElementById("btn-mark-all-read").onclick = markAllRead;
   document.getElementById("btn-mark-read-inline").onclick = markAllRead;
 
+  // --- Profile + Vehicle Plate ---
   document.getElementById("form-profile").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
@@ -967,9 +1019,10 @@
         body: {
           full_name: document.getElementById("acc-fullname").value.trim(),
           phone: document.getElementById("acc-phone").value.trim(),
+          vehicle_plate: document.getElementById("acc-vehicle-plate").value.trim().toUpperCase(),
         },
       });
-      VP.toast("Đã lưu thông tin cá nhân.", "success");
+      VP.toast("Đã lưu hồ sơ cá nhân và biển số xe!", "success");
       refreshDashboard();
     } catch (err) {
       VP.toast(err.message, "danger");
@@ -993,27 +1046,131 @@
     }
   });
 
+  // --- Priority Passenger Registration & Proof Image Compression ---
+  function compressImageFileToDataUri(file, maxDim = 960, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Không thể đọc file ảnh."));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("Định dạng file ảnh không hợp lệ."));
+        img.onload = () => {
+          let w = img.width;
+          let h = img.height;
+          if (w > maxDim || h > maxDim) {
+            if (w >= h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  document.getElementById("prio-proof-file").addEventListener("change", async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) {
+      state.proofImageDataUri = "";
+      document.getElementById("prio-proof-preview-wrap").style.display = "none";
+      return;
+    }
+    try {
+      const dataUri = await compressImageFileToDataUri(file);
+      state.proofImageDataUri = dataUri;
+      document.getElementById("prio-proof-preview").src = dataUri;
+      document.getElementById("prio-proof-preview-wrap").style.display = "block";
+    } catch (err) {
+      VP.toast(err.message || "Không thể xử lý ảnh minh chứng.", "danger");
+    }
+  });
+
+  async function loadPriorityRegistrations() {
+    try {
+      const res = await VP.api("/api/user/priority");
+      const el = document.getElementById("ui-priority-req-list");
+      if (!res.requests.length) {
+        el.innerHTML = "";
+        return;
+      }
+      el.innerHTML = res.requests
+        .map(
+          (r) => `
+          <div class="tx-item">
+            <div>
+              <div class="tx-item__title">${VP.escapeHtml(r.priority_label)} &bull; ${VP.escapeHtml(r.id_card_code)}</div>
+              <div class="tx-item__sub">${VP.escapeHtml(r.organization_name)} &bull; ${VP.formatDateTime(r.created_at)}</div>
+              ${r.admin_note ? `<div class="tx-item__sub text-primary">Phản hồi Admin: ${VP.escapeHtml(r.admin_note)}</div>` : ""}
+            </div>
+            <span class="status-pill status-pill--${r.status === "APPROVED" ? "SUCCESS" : r.status === "REJECTED" ? "FAILED" : "PROCESSING"}">${r.status}</span>
+          </div>`
+        )
+        .join("");
+    } catch (_) {}
+  }
+
+  document.getElementById("form-priority-reg").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!state.proofImageDataUri) {
+      return VP.toast("Vui lòng chọn ảnh chụp Thẻ sinh viên / Portal trường để làm bằng chứng!", "warning");
+    }
+    const btn = document.getElementById("btn-submit-priority");
+    btn.disabled = true;
+    try {
+      await VP.api("/api/user/priority", {
+        method: "POST",
+        body: {
+          priority_type: document.getElementById("prio-type").value,
+          id_card_code: document.getElementById("prio-card-code").value.trim(),
+          organization_name: document.getElementById("prio-org").value.trim(),
+          proof_note: document.getElementById("prio-note").value.trim(),
+          proof_image_data: state.proofImageDataUri,
+        },
+      });
+      state.proofImageDataUri = "";
+      e.target.reset();
+      document.getElementById("prio-proof-preview-wrap").style.display = "none";
+      VP.toast("Đã gửi hồ sơ Đối tượng Ưu tiên kèm ảnh bằng chứng!", "success");
+      await refreshDashboard();
+      await loadPriorityRegistrations();
+    } catch (err) {
+      VP.toast(err.message, "danger");
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // --- Support ---
   async function loadSupportTickets() {
     try {
       const res = await VP.api("/api/user/support");
       const el = document.getElementById("ui-support-list");
-      if (!res.support_requests.length) {
-        el.innerHTML = `<div class="empty-state">Chưa có yêu cầu hỗ trợ nào.</div>`;
-        return;
-      }
-      el.innerHTML = res.support_requests
-        .map(
-          (s) => `
-          <div class="tx-item">
-            <div>
-              <div class="tx-item__title">#${s.id} &bull; ${VP.escapeHtml(s.subject)}</div>
-              <div class="tx-item__sub">${VP.escapeHtml(s.message)}</div>
-              ${s.admin_note ? `<div class="tx-item__sub text-primary">Phản hồi Admin: ${VP.escapeHtml(s.admin_note)}</div>` : ""}
-            </div>
-            <span class="status-pill">${VP.escapeHtml(s.status)}</span>
-          </div>`
-        )
-        .join("");
+      el.innerHTML = res.support_requests.length
+        ? res.support_requests
+            .map(
+              (s) => `
+              <div class="tx-item">
+                <div>
+                  <div class="tx-item__title">#${s.id} &bull; ${VP.escapeHtml(s.subject)}</div>
+                  <div class="tx-item__sub">${VP.escapeHtml(s.message)}</div>
+                  ${s.admin_note ? `<div class="tx-item__sub text-primary">Phản hồi Admin: ${VP.escapeHtml(s.admin_note)}</div>` : ""}
+                </div>
+                <span class="status-pill">${VP.escapeHtml(s.status)}</span>
+              </div>`
+            )
+            .join("")
+        : `<div class="empty-state">Chưa có yêu cầu hỗ trợ nào.</div>`;
     } catch (_) {}
   }
 
@@ -1060,21 +1217,21 @@
         "success",
         "Quét thẻ thành công!"
       );
-      if (isPass) {
-        state.qrMonthly = payload.next_qr || null;
-      } else {
-        state.qrSingle = payload.next_qr || null;
-      }
+      if (isPass) state.qrMonthly = payload.next_qr || null;
+      else state.qrSingle = payload.next_qr || null;
       refreshDashboard();
-      if (state.activeView === "monthly-pass") loadMyPasses();
+      if (state.activeView === "tickets" && state.ticketSubTab === "MONTHLY") loadMyPasses();
     });
 
     es.addEventListener("topup_confirmed", (ev) => {
       const payload = JSON.parse(ev.data);
-      const msg = payload.activated_pass_code
-        ? `Nạp tiền & kích hoạt Vé Tháng (${payload.activated_pass_code}) thành công!`
-        : `Ví vừa được cộng +${VP.formatVND(payload.amount)}. Số dư mới: ${payload.balance_formatted}!`;
-      VP.toast(msg, "success", "Giao dịch nạp hoàn tất!");
+      VP.toast(
+        payload.activated_pass_code
+          ? `Nạp tiền & kích hoạt Vé Tháng (${payload.activated_pass_code}) thành công!`
+          : `Ví vừa được cộng +${VP.formatVND(payload.amount)}. Số dư mới: ${payload.balance_formatted}!`,
+        "success",
+        "Giao dịch nạp hoàn tất!"
+      );
       if (payload.next_qr) {
         if (payload.next_qr.ticket_mode === "MONTHLY") state.qrMonthly = payload.next_qr;
         else state.qrSingle = payload.next_qr;
@@ -1084,14 +1241,27 @@
         showTopupOrder(state.activeTopup);
       }
       refreshDashboard();
-      if (state.activeView === "monthly-pass") loadMyPasses();
+      if (state.activeView === "tickets" && state.ticketSubTab === "MONTHLY") loadMyPasses();
     });
 
     es.addEventListener("pass_updated", (ev) => {
       const payload = JSON.parse(ev.data);
       if (payload.next_qr) state.qrMonthly = payload.next_qr;
       refreshDashboard();
-      if (state.activeView === "monthly-pass") loadMyPasses();
+      if (state.activeView === "tickets" && state.ticketSubTab === "MONTHLY") loadMyPasses();
+    });
+
+    es.addEventListener("priority_updated", (ev) => {
+      const payload = JSON.parse(ev.data);
+      VP.toast(
+        payload.status === "APPROVED"
+          ? "Hồ sơ Đối tượng Ưu tiên của bạn đã được Admin phê duyệt! Đã mở khóa gói Vé Tháng HSSV."
+          : "Hồ sơ Đối tượng Ưu tiên đã có kết quả xét duyệt mới.",
+        payload.status === "APPROVED" ? "success" : "warning"
+      );
+      refreshDashboard();
+      if (state.activeView === "account") loadPriorityRegistrations();
+      if (state.activeView === "tickets") loadMyPasses();
     });
 
     es.addEventListener("account_status_changed", (ev) => {

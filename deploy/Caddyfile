@@ -1,0 +1,26 @@
+# ============================================================================
+# Caddyfile — Automatic Let's Encrypt HTTPS Reverse Proxy for VeloPass
+# Replace `velopass.yourdomain.com` with your real domain pointing A/AAAA to VPS IP.
+# Caddy automatically provisions & renews TLS certificates and streams SSE!
+# ============================================================================
+
+{$VELOPASS_DOMAIN:velopass.yourdomain.com} {
+    encode zstd gzip
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+    }
+
+    # Disable buffering on Server-Sent Events (SSE) endpoints for instant QR & Wallet sync
+    @sse {
+        path /api/notifications/stream /api/admin/stream
+    }
+    reverse_proxy @sse velopass-app:5000 {
+        flush_interval -1
+    }
+
+    reverse_proxy velopass-app:5000
+}

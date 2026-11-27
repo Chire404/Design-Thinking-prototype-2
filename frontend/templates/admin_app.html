@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0B192C" />
+  <title>{{ app_name }} Admin — Trung Tâm Điều Hành &amp; Kiểm Soát Thẻ Vé</title>
+  <link rel="icon" type="image/svg+xml" href="/static/icons/logo.svg" />
+  <link rel="stylesheet" href="/static/css/admin.css" />
+</head>
+<body>
+  <script>
+    window.__VP_CSRF__ = {{ session_user.csrf_token | tojson }};
+    window.__VP_ADMIN__ = {
+      id: {{ session_user.user_id | tojson }},
+      username: {{ session_user.username | tojson }},
+      full_name: {{ session_user.full_name | tojson }},
+      role: {{ session_user.role | tojson }}
+    };
+  </script>
+
+  <div class="admin-shell">
+    <!-- SIDEBAR NAVIGATION -->
+    <aside class="admin-sidebar" id="admin-sidebar">
+      <div class="sidebar-brand">
+        <img src="/static/icons/logo.svg" alt="VeloPass" class="sidebar-logo" />
+        <div>
+          <div class="sidebar-title">{{ app_name }} OPS</div>
+          <div class="sidebar-sub">Hệ Thống Kiểm Soát Vé</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="snav-btn active" data-asec="dashboard">&#9635; Tổng quan &amp; Thống kê</button>
+        <button class="snav-btn snav-btn--scanner" data-asec="scanner">&#9638; Thiết bị Quét QR (Gate)</button>
+        <button class="snav-btn" data-asec="topups">
+          &#8645; Đối Soát &amp; Duyệt Nạp <span class="snav-badge" id="badge-pending-topups" style="display:none;">0</span>
+        </button>
+        <button class="snav-btn" data-asec="passes">&#127915; Quản lý Vé Tháng (Pass)</button>
+        <button class="snav-btn" data-asec="users">&#9787; Quản lý Người Dùng</button>
+        <button class="snav-btn" data-asec="transactions">&#9776; Sổ Cái Giao Dịch</button>
+        <button class="snav-btn" data-asec="support">
+          &#9993; Yêu Cầu Hỗ Trợ <span class="snav-badge" id="badge-open-support" style="display:none;">0</span>
+        </button>
+        <button class="snav-btn" data-asec="settings">&#9881; Ngân Hàng &amp; Cấu Hình</button>
+        <button class="snav-btn" data-asec="audit">&#128274; Nhật Ký Quản Trị</button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="admin-who">
+          <strong>{{ session_user.full_name }}</strong>
+          <span>{{ session_user.role }}</span>
+        </div>
+        <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" id="btn-admin-logout">Đăng xuất</button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT WORKSPACE -->
+    <div class="admin-workspace">
+      <header class="admin-topbar">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button type="button" class="adm-btn adm-btn--outline adm-btn--sm mobile-menu-btn" id="btn-toggle-sidebar">
+            &#9776; Menu
+          </button>
+          <h1 class="topbar-page-title" id="admin-page-title">Tổng Quan Điều Hành</h1>
+        </div>
+        <div class="topbar-right">
+          <button type="button" class="adm-btn adm-btn--accent adm-btn--sm" data-goto-sec="scanner">
+            &#9638; Mở Máy Quét QR
+          </button>
+        </div>
+      </header>
+
+      <main class="admin-content">
+        <!-- ======================================================== -->
+        <!-- SECTION 1: DASHBOARD & ANALYTICS                         -->
+        <!-- ======================================================== -->
+        <section class="adm-section active" id="asec-dashboard">
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <span class="kpi-label">Tổng số User</span>
+              <strong class="kpi-val" id="kpi-total-users">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--emerald">
+              <span class="kpi-label">Thẻ đang hoạt động</span>
+              <strong class="kpi-val" id="kpi-active-cards">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--danger">
+              <span class="kpi-label">Thẻ đang bị khóa</span>
+              <strong class="kpi-val" id="kpi-suspended-cards">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--sky">
+              <span class="kpi-label">Tổng tiền đã nạp</span>
+              <strong class="kpi-val" id="kpi-total-topup">0 VNĐ</strong>
+            </div>
+            <div class="kpi-card kpi-card--teal">
+              <span class="kpi-label">Tổng doanh thu quét vé</span>
+              <strong class="kpi-val" id="kpi-total-spent">0 VNĐ</strong>
+            </div>
+            <div class="kpi-card kpi-card--emerald">
+              <span class="kpi-label">Lượt quét thành công</span>
+              <strong class="kpi-val" id="kpi-success-scans">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--amber">
+              <span class="kpi-label">Lượt quét thất bại</span>
+              <strong class="kpi-val" id="kpi-failed-scans">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--warn">
+              <span class="kpi-label">Đơn nạp chờ xác nhận</span>
+              <strong class="kpi-val" id="kpi-pending-topups">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--teal">
+              <span class="kpi-label">Vé Tháng đang hiệu lực</span>
+              <strong class="kpi-val" id="kpi-active-passes">0</strong>
+            </div>
+            <div class="kpi-card kpi-card--emerald">
+              <span class="kpi-label">Top-up tự động khớp NH</span>
+              <strong class="kpi-val" id="kpi-auto-topups">0</strong>
+            </div>
+          </div>
+
+          <div class="adm-grid-2">
+            <div class="adm-panel">
+              <div class="panel-head">
+                <div>
+                  <h2>Biểu Đồ Doanh Thu &amp; Nạp Ví</h2>
+                  <p class="adm-muted">Đối chiếu dòng tiền nạp vào ví và doanh thu quét thẻ</p>
+                </div>
+                <div class="period-switch">
+                  <button type="button" class="p-btn active" data-period="day">Ngày</button>
+                  <button type="button" class="p-btn" data-period="week">Tuần</button>
+                  <button type="button" class="p-btn" data-period="month">Tháng</button>
+                </div>
+              </div>
+              <div id="dashboard-chart-box" class="chart-box"></div>
+            </div>
+
+            <div class="adm-panel">
+              <div class="panel-head">
+                <h2>Nhật Ký Cổng Quét Gần Nhất</h2>
+                <button type="button" class="adm-btn adm-btn--outline adm-btn--sm" id="btn-refresh-dashboard">
+                  Làm mới
+                </button>
+              </div>
+              <div id="dashboard-recent-scans" class="compact-feed"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 2: REAL CAMERA QR SCANNER (VALIDATOR TERMINAL)   -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-scanner">
+          <div class="scanner-layout">
+            <div class="adm-panel scanner-terminal">
+              <div class="scanner-header">
+                <div>
+                  <span class="terminal-tag">GATE VALIDATOR TERMINAL &bull; 4.000 VNĐ/LƯỢT</span>
+                  <h2 style="margin:4px 0 0;color:#fff;">QR Scanner Kiểm Soát Thẻ Điện Tử</h2>
+                </div>
+                <span class="scanner-state-pill" id="scanner-status-pill">CHƯA BẬT CAMERA</span>
+              </div>
+
+              <div id="scanner-https-warning" class="adm-alert adm-alert--danger" style="display:none;">
+                Trình duyệt yêu cầu kết nối <strong>HTTPS</strong> hoặc <strong>localhost</strong> để cấp quyền truy cập Camera trực tiếp.
+              </div>
+
+              <!-- LIVE CAMERA VIEWPORT -->
+              <div class="camera-stage" id="camera-stage">
+                <video id="scanner-video" playsinline muted autoplay></video>
+                <canvas id="scanner-canvas" style="display:none;"></canvas>
+
+                <!-- RETICLE FRAME -->
+                <div class="scan-reticle" id="scan-reticle">
+                  <div class="reticle-corner tl"></div>
+                  <div class="reticle-corner tr"></div>
+                  <div class="reticle-corner bl"></div>
+                  <div class="reticle-corner br"></div>
+                  <div class="reticle-laser"></div>
+                </div>
+
+                <!-- PLACEHOLDER WHEN CAMERA IS OFF -->
+                <div class="camera-idle-overlay" id="camera-idle-overlay">
+                  <div style="font-size:2.6rem;margin-bottom:8px;">&#128247;</div>
+                  <h3>Máy Quét Đang Chờ Kích Hoạt</h3>
+                  <p>Nhấn <strong>"Bắt đầu quét (Bật Camera)"</strong> và đưa mã QR của hành khách vào khung ngắm.</p>
+                </div>
+
+                <!-- RESULT OVERLAY (GREEN SUCCESS / RED FAILED) -->
+                <div class="scan-result-overlay" id="scan-result-overlay" style="display:none;">
+                  <div class="scan-result-card" id="scan-result-card">
+                    <div class="res-badge" id="res-badge">SCAN SUCCESS</div>
+                    <h3 class="res-title" id="res-title">QUÉT THẺ HỢP LỆ</h3>
+                    <div class="res-details" id="res-details"></div>
+                    <button type="button" class="adm-btn adm-btn--light" id="btn-scan-next" style="margin-top:14px;">
+                      Sẵn sàng quét tiếp
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- CAMERA CONTROLS -->
+              <div class="scanner-controls">
+                <div class="ctrl-row">
+                  <button type="button" class="adm-btn adm-btn--emerald" id="btn-start-camera">
+                    &#9654; Bắt đầu quét (Bật Camera)
+                  </button>
+                  <button type="button" class="adm-btn adm-btn--danger" id="btn-stop-camera" disabled>
+                    &#9632; Tắt Camera
+                  </button>
+                  <select id="scanner-camera-select" class="adm-select" aria-label="Chọn thiết bị camera">
+                    <option value="">Tự động ưu tiên Camera sau</option>
+                  </select>
+                </div>
+
+                <div class="ctrl-toggles">
+                  <label class="toggle-chip">
+                    <input type="checkbox" id="chk-auto-scan" checked />
+                    <span>Quét tự động liên tục</span>
+                  </label>
+                  <label class="toggle-chip">
+                    <input type="checkbox" id="chk-scan-sound" checked />
+                    <span>Âm báo thiết bị (Beep)</span>
+                  </label>
+                </div>
+              </div>
+
+              <!-- FALLBACK HARDWARE/KEYBOARD SCANNER INPUT -->
+              <details class="manual-token-box">
+                <summary>Nhập từ đầu đọc QR cầm tay USB / Kiểm tra mã Token trực tiếp</summary>
+                <form id="form-manual-scan" class="inline-form" style="margin-top:10px;">
+                  <input type="text" id="manual-qr-input" class="adm-input" placeholder="Quét từ súng đọc mã vạch hoặc dán token VPQR1..." required />
+                  <button type="submit" class="adm-btn adm-btn--primary">Xác thực &amp; Trừ vé</button>
+                </form>
+              </details>
+            </div>
+
+            <!-- RECENT SCAN HISTORY -->
+            <div class="adm-panel">
+              <div class="panel-head">
+                <h2>Lịch Sử Các Lần Quét Gần Nhất</h2>
+                <button type="button" class="adm-btn adm-btn--outline adm-btn--sm" id="btn-refresh-scans">
+                  Tải lại
+                </button>
+              </div>
+              <div id="scanner-log-list" class="compact-feed"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 3: DUAL TOP-UP RECONCILIATION (AUTO + MANUAL)    -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-topups">
+          <!-- AUTO BANK RECONCILIATION ENGINE -->
+          <div class="adm-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Đối Chiếu Tài Khoản Ngân Hàng Tự Động (Auto-Approve Top-up)</h2>
+                <p class="adm-muted">
+                  Tự động so khớp <strong>Số tài khoản nhận + Nội dung chuyển khoản (VP...) + Đúng số tiền</strong> để cộng ví tức thì, vận hành <strong>song song</strong> với duyệt thủ công bên dưới.
+                </p>
+              </div>
+              <div class="filter-bar">
+                <button type="button" class="adm-btn adm-btn--emerald" id="btn-sync-bank-now">
+                  &#8635; Đồng bộ API Ngân hàng ngay
+                </button>
+                <button type="button" class="adm-btn adm-btn--outline" id="btn-toggle-reconcile-cfg">
+                  &#9881; Cấu hình kết nối API tự động
+                </button>
+              </div>
+            </div>
+
+            <div id="reconcile-status-banner" class="adm-alert adm-alert--info" style="margin-bottom:14px;"></div>
+
+            <!-- COLLAPSIBLE BANK SYNC API CONFIGURATION -->
+            <div id="reconcile-cfg-panel" style="display:none;padding:16px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:14px;margin-bottom:16px;">
+              <h3 style="margin:0 0 10px;font-size:0.95rem;">Cấu Hình Đồng Bộ Tài Khoản Ngân Hàng Trực Tuyến</h3>
+              <form id="form-reconcile-settings">
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Nguồn API Giao Dịch Ngân Hàng</label>
+                    <select id="rc-provider" class="adm-select">
+                      <option value="SEPAY_API">SePay API (Tự động đọc biến động TK)</option>
+                      <option value="CASSO_API">Casso OpenBanking API</option>
+                      <option value="CUSTOM_JSON_API">Custom Bank Statement JSON API</option>
+                      <option value="MANUAL_IMPORT_ONLY">Chỉ nhập file sao kê CSV/JSON &amp; Duyệt thủ công</option>
+                    </select>
+                  </div>
+                  <div class="adm-field">
+                    <label>Chu kỳ quét ngầm (giây: 10–3600)</label>
+                    <input type="number" id="rc-interval" class="adm-input" min="10" max="3600" value="20" />
+                  </div>
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Endpoint API URL (để trống sẽ dùng URL chuẩn của SePay/Casso)</label>
+                    <input type="text" id="rc-api-url" class="adm-input" placeholder="https://my.sepay.vn/userapi/transactions/list" />
+                  </div>
+                  <div class="adm-field">
+                    <label>API Token / Secret Key</label>
+                    <input type="password" id="rc-api-token" class="adm-input" placeholder="Nhập Bearer / Apikey từ cổng ngân hàng" />
+                  </div>
+                </div>
+                <div style="display:flex;flex-wrap:wrap;gap:18px;margin-bottom:12px;font-size:0.84rem;">
+                  <label class="toggle-chip" style="color:#0F172A;">
+                    <input type="checkbox" id="rc-auto-approve" checked />
+                    <span>Tự động duyệt đơn khi khớp sao kê</span>
+                  </label>
+                  <label class="toggle-chip" style="color:#0F172A;">
+                    <input type="checkbox" id="rc-bg-poll" />
+                    <span>Bật tiến trình quét API tự động định kỳ</span>
+                  </label>
+                  <label class="toggle-chip" style="color:#0F172A;">
+                    <input type="checkbox" id="rc-strict-acc" checked />
+                    <span>Bắt buộc khớp đúng Số tài khoản nhận tiền</span>
+                  </label>
+                </div>
+                <button type="submit" class="adm-btn adm-btn--primary adm-btn--sm">Lưu cấu hình đối soát tự động</button>
+              </form>
+            </div>
+
+            <!-- IMPORT CSV / JSON BANK STATEMENT -->
+            <div class="adm-grid-2" style="margin-bottom:16px;">
+              <form id="form-import-statement" style="padding:14px;border:1.5px dashed #CBD5E1;border-radius:14px;background:#FAFCFF;">
+                <strong>Nhập Sao Kê Ngân Hàng (CSV / JSON) Để Tự Động Khớp &amp; Duyệt</strong>
+                <p class="adm-muted" style="margin:4px 0 10px;">
+                  Hỗ trợ cột CSV: <code>bank_tx_id,account_number,amount_in,description,tx_time</code> hoặc mảng JSON.
+                </p>
+                <div class="adm-field">
+                  <input type="file" id="stmt-file-input" accept=".csv,.json" class="adm-input" />
+                </div>
+                <div class="adm-field">
+                  <textarea id="stmt-text-input" class="adm-input" rows="3" placeholder="Hoặc dán trực tiếp các dòng CSV / JSON biến động tài khoản ngân hàng vào đây..."></textarea>
+                </div>
+                <button type="submit" class="adm-btn adm-btn--primary adm-btn--sm">
+                  Đối chiếu &amp; Tự động duyệt đơn khớp
+                </button>
+              </form>
+
+              <div style="padding:14px;border:1px solid #E2E8F0;border-radius:14px;background:#F8FAFC;">
+                <strong>Thống Kê Bút Toán Sao Kê Đã Quét</strong>
+                <div class="kpi-grid" style="grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px;margin-bottom:0;">
+                  <div style="background:#fff;padding:10px;border-radius:10px;border-left:3px solid #10B981;">
+                    <span class="adm-muted">Tự động khớp &amp; Duyệt</span>
+                    <div style="font-size:1.15rem;font-weight:800;" id="rc-cnt-matched">0</div>
+                  </div>
+                  <div style="background:#fff;padding:10px;border-radius:10px;border-left:3px solid #0EA5E9;">
+                    <span class="adm-muted">Đã duyệt trước đó</span>
+                    <div style="font-size:1.15rem;font-weight:800;" id="rc-cnt-settled">0</div>
+                  </div>
+                  <div style="background:#fff;padding:10px;border-radius:10px;border-left:3px solid #F59E0B;">
+                    <span class="adm-muted">Lệch tiền / Sai TK</span>
+                    <div style="font-size:1.15rem;font-weight:800;" id="rc-cnt-mismatch">0</div>
+                  </div>
+                  <div style="background:#fff;padding:10px;border-radius:10px;border-left:3px solid #64748B;">
+                    <span class="adm-muted">Chưa khớp nội dung</span>
+                    <div style="font-size:1.15rem;font-weight:800;" id="rc-cnt-unmatched">0</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- RECONCILED BANK STATEMENT ENTRIES TABLE -->
+            <div class="panel-head" style="margin-bottom:8px;">
+              <h3 style="margin:0;font-size:0.95rem;">Nhật Ký Giao Dịch Tài Khoản Ngân Hàng Đã Đối Chiếu</h3>
+              <select id="filter-reconcile-status" class="adm-select" style="width:auto;">
+                <option value="">Tất cả kết quả đối chiếu</option>
+                <option value="MATCHED_AUTO_APPROVED">MATCHED_AUTO_APPROVED (Tự động duyệt)</option>
+                <option value="UNMATCHED">UNMATCHED (Chưa khớp mã)</option>
+                <option value="AMOUNT_MISMATCH">AMOUNT_MISMATCH (Lệch số tiền)</option>
+                <option value="ACCOUNT_MISMATCH">ACCOUNT_MISMATCH (Khác số TK)</option>
+                <option value="ALREADY_SETTLED">ALREADY_SETTLED (Đã thanh toán)</option>
+              </select>
+            </div>
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>Mã GD Ngân Hàng</th>
+                    <th>Số tiền vào</th>
+                    <th>Nội dung biến động</th>
+                    <th>Kết quả đối chiếu</th>
+                    <th>Ghi chú / Ghép đơn thủ công</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-reconcile-entries"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- PARALLEL MANUAL TOP-UP QUEUE -->
+          <div class="adm-panel">
+            <div class="panel-head">
+              <div>
+                <h2>Hàng Đợi Đơn Nạp Tiền &amp; Duyệt Thủ Công Song Song</h2>
+                <p class="adm-muted">Admin luôn có thể xác nhận hoặc từ chối thủ công bất kỳ đơn `PENDING` / `PROCESSING` nào</p>
+              </div>
+              <div class="filter-bar">
+                <select id="filter-topup-status" class="adm-select">
+                  <option value="">Tất cả trạng thái</option>
+                  <option value="PENDING">PENDING (Chờ TT)</option>
+                  <option value="PROCESSING">PROCESSING (Khách báo đã CK)</option>
+                  <option value="SUCCESS">SUCCESS (Đã cộng tiền)</option>
+                  <option value="FAILED">FAILED (Từ chối)</option>
+                  <option value="CANCELLED">CANCELLED</option>
+                  <option value="EXPIRED">EXPIRED</option>
+                </select>
+                <input type="text" id="filter-topup-query" class="adm-input" placeholder="Tìm mã GD, nội dung VP..., user" />
+                <button type="button" class="adm-btn adm-btn--primary" id="btn-filter-topups">Lọc</button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>Mã GD</th>
+                    <th>Người dùng</th>
+                    <th>Số tiền</th>
+                    <th>Nội dung CK</th>
+                    <th>Trạng thái / Kênh</th>
+                    <th>Mã tham chiếu NH</th>
+                    <th>Thời gian</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-admin-topups"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 3B: MONTHLY PASS MANAGEMENT                      -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-passes">
+          <div class="adm-grid-2">
+            <div class="adm-panel">
+              <h2>Tạo / Cập Nhật Gói Vé Tháng (`Pass Plans`)</h2>
+              <p class="adm-muted" style="margin-bottom:12px;">Cấu hình các gói vé định kỳ cho phép hành khách quét QR qua cổng 0 VNĐ.</p>
+              <form id="form-pass-plan">
+                <input type="hidden" id="pp-id" />
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Mã gói (VD: MONTHLY_VIP)</label>
+                    <input type="text" id="pp-code" class="adm-input" placeholder="MONTHLY_STANDARD" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Nhãn nổi bật</label>
+                    <input type="text" id="pp-badge" class="adm-input" value="KHÔNG GIỚI HẠN LƯỢT" required />
+                  </div>
+                </div>
+                <div class="adm-field">
+                  <label>Tên hiển thị gói vé</label>
+                  <input type="text" id="pp-name" class="adm-input" placeholder="Vé Tháng Tiêu Chuẩn (30 Ngày)" required />
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Giá gói (VNĐ nguyên)</label>
+                    <input type="number" id="pp-price" class="adm-input" min="1000" step="1000" value="100000" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Thời hạn (Số ngày)</label>
+                    <input type="number" id="pp-days" class="adm-input" min="1" max="365" value="30" required />
+                  </div>
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Giới hạn lượt (để trống = Không giới hạn)</label>
+                    <input type="number" id="pp-max-trips" class="adm-input" min="1" placeholder="Không giới hạn" />
+                  </div>
+                  <div class="adm-field">
+                    <label>Trạng thái mở bán</label>
+                    <select id="pp-active" class="adm-select">
+                      <option value="1">Đang mở bán</option>
+                      <option value="0">Tạm ẩn</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="adm-field">
+                  <label>Mô tả quyền lợi</label>
+                  <textarea id="pp-desc" class="adm-input" rows="2"></textarea>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  <button type="submit" class="adm-btn adm-btn--primary">Lưu Gói Vé Tháng</button>
+                  <button type="button" class="adm-btn adm-btn--outline" id="btn-reset-pp-form">Làm mới form</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="adm-panel">
+              <h2>Danh Sách Gói Vé Hiện Hành</h2>
+              <div id="admin-pass-plans-list" class="compact-feed" style="margin-top:12px;"></div>
+            </div>
+          </div>
+
+          <div class="adm-panel">
+            <div class="panel-head">
+              <h2>Danh Sách Hành Khách Đăng Ký Vé Tháng</h2>
+              <div class="filter-bar">
+                <select id="filter-sub-pass-status" class="adm-select">
+                  <option value="">Mọi trạng thái</option>
+                  <option value="ACTIVE">ACTIVE (Đang hiệu lực)</option>
+                  <option value="EXPIRED">EXPIRED (Hết hạn)</option>
+                </select>
+                <input type="text" id="filter-sub-pass-search" class="adm-input" placeholder="Tìm mã PASS-..., tên user, mã thẻ..." />
+                <button type="button" class="adm-btn adm-btn--primary" id="btn-search-sub-passes">Lọc</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>Mã Vé Tháng</th>
+                    <th>Hành khách / Thẻ</th>
+                    <th>Tên gói</th>
+                    <th>Giá mua</th>
+                    <th>Đã đi</th>
+                    <th>Hiệu lực đến</th>
+                    <th>Trạng thái</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-admin-passes"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 4: USER MANAGEMENT                               -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-users">
+          <div class="adm-panel">
+            <div class="panel-head">
+              <h2>Quản Lý Hành Khách &amp; Thẻ Điện Tử</h2>
+              <div class="filter-bar">
+                <select id="filter-user-status" class="adm-select">
+                  <option value="">Mọi trạng thái</option>
+                  <option value="ACTIVE">ACTIVE</option>
+                  <option value="SUSPENDED">SUSPENDED</option>
+                </select>
+                <input type="text" id="filter-user-search" class="adm-input" placeholder="Tên, email, username hoặc mã thẻ VP-..." />
+                <button type="button" class="adm-btn adm-btn--primary" id="btn-search-users">Tìm kiếm</button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Hành khách</th>
+                    <th>Mã thẻ điện tử</th>
+                    <th>Số dư ví</th>
+                    <th>Trạng thái thẻ</th>
+                    <th>QR</th>
+                    <th>Thao tác</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-admin-users"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 5: TRANSACTIONS EXPLORER                         -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-transactions">
+          <div class="adm-panel">
+            <div class="panel-head">
+              <h2>Sổ Cái Kiểm Soát Tất Cả Giao Dịch</h2>
+            </div>
+            <div class="filter-grid" style="margin-bottom:16px;">
+              <input type="text" id="tx-f-user" class="adm-input" placeholder="User hoặc Mã GD..." />
+              <select id="tx-f-type" class="adm-select">
+                <option value="">Tất cả loại GD</option>
+                <option value="TOPUP">TOPUP (Nạp tiền)</option>
+                <option value="USAGE">USAGE (Quét QR trừ vé)</option>
+                <option value="PASS_PURCHASE">PASS_PURCHASE (Mua Vé Tháng)</option>
+                <option value="ADJUSTMENT_CREDIT">ADJUSTMENT_CREDIT (+)</option>
+                <option value="ADJUSTMENT_DEBIT">ADJUSTMENT_DEBIT (-)</option>
+              </select>
+              <input type="date" id="tx-f-from" class="adm-input" title="Từ ngày" />
+              <input type="date" id="tx-f-to" class="adm-input" title="Đến ngày" />
+              <input type="number" id="tx-f-min" class="adm-input" placeholder="Số tiền từ (VNĐ)" />
+              <button type="button" class="adm-btn adm-btn--primary" id="btn-filter-tx">Áp dụng bộ lọc</button>
+            </div>
+
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>Mã giao dịch</th>
+                    <th>Người dùng</th>
+                    <th>Loại GD</th>
+                    <th>Biến động</th>
+                    <th>Số dư trước</th>
+                    <th>Số dư sau</th>
+                    <th>Admin xử lý</th>
+                    <th>Thời gian</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-admin-tx"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 6: SUPPORT TICKETS                               -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-support">
+          <div class="adm-panel">
+            <div class="panel-head">
+              <h2>Quản Lý Yêu Cầu Hỗ Trợ Hành Khách</h2>
+              <button type="button" class="adm-btn adm-btn--outline adm-btn--sm" id="btn-refresh-support">Làm mới</button>
+            </div>
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>#ID</th>
+                    <th>Hành khách / Thẻ</th>
+                    <th>Tiêu đề &amp; Nội dung</th>
+                    <th>Trạng thái</th>
+                    <th>Phản hồi xử lý</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-admin-support"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 7: BANK & SYSTEM CONFIGURATION                   -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-settings">
+          <div class="adm-grid-2">
+            <div class="adm-panel">
+              <h2>Cấu Hình Ngân Hàng Nhận Tiền (VietQR)</h2>
+              <p class="adm-muted" style="margin-bottom:14px;">
+                Dùng để sinh mã QR chuyển khoản tự động kèm nội dung riêng cho từng đơn nạp tiền.
+              </p>
+              <form id="form-bank-settings">
+                <div class="adm-field">
+                  <label>Tên đầy đủ Ngân hàng</label>
+                  <input type="text" id="bs-bank-name" class="adm-input" required />
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Tên viết tắt (VD: VCB, MB, TCB)</label>
+                    <input type="text" id="bs-short-name" class="adm-input" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Mã BIN Napas (VD: 970436 = VCB)</label>
+                    <input type="text" id="bs-bank-bin" class="adm-input" required />
+                  </div>
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Số tài khoản nhận tiền</label>
+                    <input type="text" id="bs-acc-num" class="adm-input" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Tên chủ tài khoản (IN HOA)</label>
+                    <input type="text" id="bs-acc-holder" class="adm-input" required />
+                  </div>
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Tiền tố mã chuyển khoản</label>
+                    <input type="text" id="bs-prefix" class="adm-input" maxlength="6" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Trạng thái nhận tiền</label>
+                    <select id="bs-active" class="adm-select">
+                      <option value="1">Đang hoạt động</option>
+                      <option value="0">Tạm ngưng nhận nạp</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="adm-field">
+                  <label>URL ảnh QR ngân hàng tĩnh (tùy chọn — để trống để tự sinh VietQR động)</label>
+                  <input type="text" id="bs-qr-url" class="adm-input" placeholder="https://..." />
+                </div>
+                <div class="adm-field">
+                  <label>Hướng dẫn thanh toán hiển thị cho User</label>
+                  <textarea id="bs-instructions" class="adm-input" rows="2"></textarea>
+                </div>
+                <button type="submit" class="adm-btn adm-btn--primary">Lưu cấu hình ngân hàng</button>
+              </form>
+            </div>
+
+            <div class="adm-panel">
+              <h2>Cấu Hình Vận Hành &amp; Giá Vé</h2>
+              <div id="webhook-status-box" class="adm-alert" style="margin-bottom:14px;"></div>
+
+              <form id="form-sys-settings">
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Giá mỗi lượt quét QR (VNĐ nguyên)</label>
+                    <input type="number" id="ss-fare" class="adm-input" min="1000" step="500" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Thời hạn hiệu lực QR động (giây)</label>
+                    <input type="number" id="ss-ttl" class="adm-input" min="15" max="600" required />
+                  </div>
+                </div>
+                <div class="adm-grid-2">
+                  <div class="adm-field">
+                    <label>Ngưỡng cảnh báo số dư thấp (VNĐ)</label>
+                    <input type="number" id="ss-low-bal" class="adm-input" min="0" step="1000" required />
+                  </div>
+                  <div class="adm-field">
+                    <label>Thông báo hệ thống</label>
+                    <select id="ss-notif" class="adm-select">
+                      <option value="1">Bật thông báo</option>
+                      <option value="0">Tắt thông báo</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="adm-field">
+                  <label>Lý do điều chỉnh giá vé (lưu vào lịch sử giá)</label>
+                  <input type="text" id="ss-reason" class="adm-input" placeholder="Chỉ áp dụng cho lượt quét phát sinh sau thời điểm lưu" />
+                </div>
+                <button type="submit" class="adm-btn adm-btn--emerald">Cập nhật cấu hình hệ thống</button>
+              </form>
+
+              <h3 style="font-size:0.92rem;margin:20px 0 8px;">Lịch sử thay đổi giá lượt sử dụng</h3>
+              <div id="fare-history-list" class="compact-feed"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================================== -->
+        <!-- SECTION 8: AUDIT LOGS                                    -->
+        <!-- ======================================================== -->
+        <section class="adm-section" id="asec-audit">
+          <div class="adm-panel">
+            <div class="panel-head">
+              <h2>Nhật Ký Kiểm Toán Quản Trị (Audit Logs)</h2>
+              <button type="button" class="adm-btn adm-btn--outline adm-btn--sm" id="btn-refresh-audit">Làm mới</button>
+            </div>
+            <div class="table-wrap">
+              <table class="adm-table">
+                <thead>
+                  <tr>
+                    <th>#ID</th>
+                    <th>Admin thực hiện</th>
+                    <th>Hành động</th>
+                    <th>Đối tượng</th>
+                    <th>Chi tiết thay đổi</th>
+                    <th>IP</th>
+                    <th>Thời gian</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody-audit-logs"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- MODAL: CONFIRM TOP-UP MANUALLY -->
+  <div class="adm-modal" id="modal-confirm-topup" style="display:none;">
+    <div class="adm-modal__backdrop" data-close-modal="modal-confirm-topup"></div>
+    <div class="adm-modal__box">
+      <h3>Xác Nhận Đối Soát Nạp Tiền Thủ Công</h3>
+      <p class="adm-muted" id="confirm-topup-summary"></p>
+      <form id="form-confirm-topup">
+        <input type="hidden" id="confirm-topup-id" />
+        <div class="adm-field">
+          <label>Mã giao dịch trên sao kê ngân hàng (Bank Reference — Bắt buộc)</label>
+          <input type="text" id="confirm-bank-ref" class="adm-input" placeholder="VD: FT26330981234" required />
+        </div>
+        <div class="adm-field">
+          <label>Ghi chú đối soát</label>
+          <input type="text" id="confirm-note" class="adm-input" value="Đã kiểm tra khớp sao kê ngân hàng" />
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="adm-btn adm-btn--ghost" data-close-modal="modal-confirm-topup">Hủy</button>
+          <button type="submit" class="adm-btn adm-btn--emerald">Xác nhận &amp; Cộng tiền ví</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: USER DETAIL & MANAGEMENT -->
+  <div class="adm-modal" id="modal-user-detail" style="display:none;">
+    <div class="adm-modal__backdrop" data-close-modal="modal-user-detail"></div>
+    <div class="adm-modal__box adm-modal__box--lg">
+      <div class="panel-head">
+        <h3 id="ud-title" style="margin:0;">Chi Tiết Hành Khách</h3>
+        <button type="button" class="adm-btn adm-btn--ghost adm-btn--sm" data-close-modal="modal-user-detail">&times; Đóng</button>
+      </div>
+      <div id="ud-body"></div>
+    </div>
+  </div>
+
+  <script src="/static/vendor/jsQR.js"></script>
+  <script src="/static/js/api.js"></script>
+  <script src="/static/js/admin_app.js"></script>
+</body>
+</html>

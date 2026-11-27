@@ -1,0 +1,30 @@
+# Render Blueprint — 1-Click 24/7 HTTPS Deployment at https://velopass.onrender.com
+services:
+  - type: web
+    name: velopass
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt && python manage.py migrate
+    startCommand: python run.py --prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_NAME
+        value: VeloPass
+      - key: APP_HOST
+        value: 0.0.0.0
+      - key: APP_PORT
+        value: "5000"
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: DATABASE_PATH
+        value: /var/data/velopass.db
+      - key: SECRET_KEY
+        generateValue: true
+      - key: QR_HMAC_SECRET
+        generateValue: true
+    disk:
+      name: velopass-sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
